@@ -1,6 +1,6 @@
 (() => {
   const SOURCE = 'abema-comment-analyzer';
-  const ONE_HOUR = 60 * 60 * 1000;
+  const RETENTION_MS = 24 * 60 * 60 * 1000;
   const MAX_COMMENTS = 25000;
   let queue = [];
   let flushing = false;
@@ -53,7 +53,7 @@
       const now = Date.now();
       const existing = Array.isArray(data.comments) ? data.comments : [];
       const merged = existing.concat(batch)
-        .filter((c) => now - Number(c.observedAt || c.createdAtMs || now) <= ONE_HOUR)
+        .filter((c) => now - Number(c.observedAt || c.createdAtMs || now) <= RETENTION_MS)
         .slice(-MAX_COMMENTS);
       await chrome.storage.local.set({ comments: merged, lastCommentAt: now });
     } catch (error) {
