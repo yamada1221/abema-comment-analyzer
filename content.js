@@ -20,9 +20,9 @@
     return false;
   }
 
-  function postMuted(users) {
+  function postToPage(type, payload) {
     if (!contextValid) return;
-    window.postMessage({ source: SOURCE, direction: 'TO_PAGE', type: 'SET_MUTED_USERS', payload: users }, '*');
+    window.postMessage({ source: SOURCE, direction: 'TO_PAGE', type, payload }, '*');
   }
 
   async function syncMuted() {
@@ -32,7 +32,7 @@
     }
     try {
       const { mutedUsers = [] } = await chrome.storage.local.get('mutedUsers');
-      if (isContextValid()) postMuted(mutedUsers);
+      if (isContextValid()) postToPage('SET_MUTED_USERS', mutedUsers);
     } catch (error) {
       if (!invalidateContext(error)) console.warn('[ABEMA Comment Analyzer] syncMuted failed:', error);
     }
@@ -52,8 +52,14 @@
       if (data.captureEnabled === false) return;
       const now = Date.now();
       const existing = Array.isArray(data.comments) ? data.comments : [];
-      const merged = existing.concat(batch)
+      const byId = new Map();
+      for (const c of existing.concat(batch)) {
+        const key = String(c.id || `${c.userId}:${c.createdAtMs || c.observedAt}:${c.message}`);
+        byId.set(key, c);
+      }
+      const merged = [...byId.values()]
         .filter((c) => now - Number(c.observedAt || c.createdAtMs || now) <= RETENTION_MS)
+        .sort((a, b) => Number(a.createdAtMs || a.observedAt) - Number(b.createdAtMs || b.observedAt))
         .slice(-MAX_COMMENTS);
       await chrome.storage.local.set({ comments: merged, lastCommentAt: now });
     } catch (error) {
@@ -63,13 +69,19 @@
     }
   }
 
-  window.addEventListener('message', (event) => {
+  window.addEventListener('message', async (event) => {
     if (!contextValid || event.source !== window) return;
     const d = event.data;
     if (!d || d.source !== SOURCE) return;
     if (d.type === 'COMMENT' && d.payload) {
       queue.push({ ...d.payload, pageUrl: location.href, pageTitle: document.title });
       if (queue.length >= 20) flush();
+    } else if (d.type === 'HISTORY_PROGRESS' && d.payload && isContextValid()) {
+      try {
+        await chrome.storage.local.set({ historyLoadProgress: d.payload });
+      } catch (error) {
+        if (!invalidateContext(error)) console.warn('[ABEMA Comment Analyzer] history progress failed:', error);
+      }
     }
   });
 
@@ -79,7 +91,14 @@
         contextValid = false;
         return;
       }
-      if (area === 'local' && changes.mutedUsers) postMuted(changes.mutedUsers.newValue || []);
+      if (area !== 'local') return;
+      if (changes.mutedUsers) postToPage('SET_MUTED_USERS', changes.mutedUsers.newValue || []);
+      if (changes.historyLoadRequest?.newValue) {
+        postToPage('LOAD_HISTORY', { requestId: changes.historyLoadRequest.newValue });
+      }
+      if (changes.historyLoadCancel?.newValue) {
+        postToPage('CANCEL_HISTORY', { requestId: changes.historyLoadCancel.newValue });
+      }
     });
   }
 
