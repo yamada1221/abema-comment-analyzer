@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ABEMA Comment Analyzer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "ABEMAのコメントをローカルに記録・集計し、投稿者単位でミュートします。",
   "permissions": [
     "storage"
