@@ -185,6 +185,17 @@
   });
 
   if (isContextValid()) {
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (!message || message.source !== SOURCE) return;
+      if (message.type === 'LOAD_HISTORY_REQUEST') {
+        postToPage('LOAD_HISTORY', { requestId: message.requestId });
+        sendResponse({ ok: true, title: document.title });
+      } else if (message.type === 'CANCEL_HISTORY_REQUEST') {
+        postToPage('CANCEL_HISTORY', { requestId: message.requestId });
+        sendResponse({ ok: true });
+      }
+    });
+
     chrome.storage.onChanged.addListener((changes, area) => {
       if (!isContextValid()) {
         contextValid = false;
@@ -199,12 +210,6 @@
         moderation = { ...DEFAULT_MODERATION, ...(changes.moderationSettings.newValue || {}) };
         whitelistCache = new Set((moderation.whitelistUsers || []).map(String));
         userActivity.clear();
-      }
-      if (changes.historyLoadRequest?.newValue) {
-        postToPage('LOAD_HISTORY', { requestId: changes.historyLoadRequest.newValue });
-      }
-      if (changes.historyLoadCancel?.newValue) {
-        postToPage('CANCEL_HISTORY', { requestId: changes.historyLoadCancel.newValue });
       }
     });
   }
