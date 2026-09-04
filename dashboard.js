@@ -1,8 +1,8 @@
 const MAX_WINDOW_MINUTES=24*60; let storedComments=[],comments=[],mutedUsers=[],selected=null,windowMinutes=60,historyTargetTabId=null;
 const DEFAULT_MODERATION={enabled:false,rateEnabled:true,rateCount:8,rateWindowSec:30,duplicateEnabled:true,duplicateCount:3,duplicateWindowSec:60,ngEnabled:true,ngWords:[],whitelistUsers:[]};
 const $=id=>document.getElementById(id);
-function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));}
-function commentTime(c){return Number(c.observedAt||c.createdAtMs||0);}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function commentTime(c){return Number(c.createdAtMs||c.observedAt||0);}
 function formatDuration(minutes){if(minutes<60)return`${minutes}分`;if(minutes%60===0)return`${minutes/60}時間`;return`${Math.floor(minutes/60)}時間${minutes%60}分`;}
 function currentWindowFromControls(){const value=Math.max(1,Number($('windowValue').value)||1);const unit=Number($('windowUnit').value)||1;return Math.min(MAX_WINDOW_MINUTES,Math.round(value*unit));}
 function syncControlsFromMinutes(minutes){if(minutes>=60&&minutes%60===0){$('windowValue').value=minutes/60;$('windowUnit').value='60';}else{$('windowValue').value=minutes;$('windowUnit').value='1';}}
