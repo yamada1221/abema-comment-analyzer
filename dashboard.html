@@ -1,7 +1,15 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ABEMA コメント分析</title><link rel="stylesheet" href="dashboard.css"></head>
 <body><header><div><h1>ABEMA コメント分析</h1><p>端末内に最大24時間保存・分析対象は自由指定</p></div><div class="actions"><label>直近 <input id="windowValue" type="number" min="1" max="1440" value="60" style="width:72px"> <select id="windowUnit"><option value="1">分</option><option value="60">時間</option></select></label><button id="applyWindow">適用</button><button id="loadHistory">過去コメントを読み込む</button><button id="cancelHistory" style="display:none">中止</button><button id="exportJson">JSON</button><button id="exportCsv">CSV</button><button id="refresh">更新</button></div></header>
-<main><div id="historyStatus" style="margin:0 0 12px;color:#aaa"></div><section class="summary"><div><b id="total">0</b><span>コメント</span></div><div><b id="unique">0</b><span>投稿者</span></div><div><b id="topShare">0%</b><span>上位10人の占有率</span></div><div><b id="muted">0</b><span>ミュート中</span></div></section>
+<main><div id="historyStatus" style="margin:0 0 12px;color:#aaa"></div>
+<section class="chartbox" style="margin-bottom:16px"><div class="titleRow"><h2>自動ミュート</h2><label><input id="modEnabled" type="checkbox"> 有効</label></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
+<div><label><input id="rateEnabled" type="checkbox"> 高頻度投稿</label><div><input id="rateCount" type="number" min="2" value="8" style="width:64px"> 件 / <input id="rateWindowSec" type="number" min="1" value="30" style="width:64px"> 秒でミュート</div></div>
+<div><label><input id="duplicateEnabled" type="checkbox"> 同文・類似連投</label><div><input id="duplicateCount" type="number" min="2" value="3" style="width:64px"> 回 / <input id="duplicateWindowSec" type="number" min="1" value="60" style="width:64px"> 秒でミュート</div></div>
+<div><label><input id="ngEnabled" type="checkbox"> NGワード</label><textarea id="ngWords" rows="5" placeholder="1行1件。部分一致で判定" style="width:100%"></textarea></div>
+<div><label>自動判定から除外するユーザーID</label><textarea id="whitelistUsers" rows="5" placeholder="1行1ユーザーID" style="width:100%"></textarea></div>
+</div><div style="margin-top:10px"><button id="saveModeration">設定を保存</button> <span id="moderationSaved" style="color:#aaa"></span></div>
+<div style="margin-top:14px"><h3>自動ミュート履歴</h3><div id="autoMuteLog" style="max-height:220px;overflow:auto"></div></div></section>
+<section class="summary"><div><b id="total">0</b><span>コメント</span></div><div><b id="unique">0</b><span>投稿者</span></div><div><b id="topShare">0%</b><span>上位10人の占有率</span></div><div><b id="muted">0</b><span>ミュート中</span></div></section>
 <section class="chartbox"><div class="titleRow"><h2 id="timelineTitle">コメント数推移</h2><span id="availableSpan"></span></div><canvas id="timeline" width="1200" height="220"></canvas></section>
 <section class="layout"><div><div class="titleRow"><h2>投稿者ランキング</h2><input id="search" placeholder="ID・コメント検索"></div><table><thead><tr><th>投稿者</th><th>件数</th><th>割合</th><th>平均間隔</th><th></th></tr></thead><tbody id="usersBody"></tbody></table></div>
 <aside><h2 id="detailTitle">投稿者を選択</h2><div id="detailMeta"></div><div id="detailComments" class="comments"></div></aside></section></main>
