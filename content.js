@@ -273,13 +273,22 @@
       } catch (error) {
         if (!invalidateContext(error)) console.warn('[ABEMA Comment Analyzer] history progress failed:', error);
       }
+    } else if (d.type === 'COMMENT_PANEL_STATUS' && d.payload && isContextValid()) {
+      try {
+        await chrome.storage.local.set({ commentPanelOpenStatus: d.payload });
+      } catch (error) {
+        if (!invalidateContext(error)) console.warn('[ABEMA Comment Analyzer] comment panel status failed:', error);
+      }
     }
   });
 
   if (isContextValid()) {
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (!message || message.source !== SOURCE) return;
-      if (message.type === 'LOAD_HISTORY_REQUEST') {
+      if (message.type === 'OPEN_COMMENT_PANEL_REQUEST') {
+        postToPage('OPEN_COMMENT_PANEL', { requestId: message.requestId });
+        sendResponse({ ok: true, title: document.title });
+      } else if (message.type === 'LOAD_HISTORY_REQUEST') {
         postToPage('LOAD_HISTORY', { requestId: message.requestId });
         sendResponse({ ok: true, title: document.title });
       } else if (message.type === 'CANCEL_HISTORY_REQUEST') {
