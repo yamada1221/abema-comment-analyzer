@@ -3,8 +3,8 @@
     learningMinComments: 5,
     learningMinMutedUsers: 3,
     learningMaxCommentsPerUser: 40,
-    learningCandidateThreshold: 0.58,
-    learningAutoMuteThreshold: 0.78,
+    learningCandidateThreshold: 0.25,
+    learningAutoMuteThreshold: 0.40,
     learningNormalPenalty: 0.75
   };
 
@@ -189,7 +189,7 @@
       };
     }
 
-    const threshold = Math.max(0, Math.min(1, Number(settings.learningCandidateThreshold) || 0.58));
+    const threshold = Math.max(0, Math.min(1, Number(settings.learningCandidateThreshold) || 0.25));
     const candidates = [];
     for (const userId of normalIds) {
       const profile = profiles.get(userId);
