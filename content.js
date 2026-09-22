@@ -149,12 +149,11 @@
       const data = await chrome.storage.local.get(['comments', 'mutedUsers', 'autoMuteLog', 'learningAutoMutedUsers']);
       const allMuted = (data.mutedUsers || []).map(String);
       const learnedAuto = new Set((data.learningAutoMutedUsers || []).map(String));
-      const trainingMuted = allMuted.filter((id) => !learnedAuto.has(id));
       const result = ABEMACommentLearning.analyze(
         Array.isArray(data.comments) ? data.comments : [],
-        trainingMuted,
+        allMuted,
         moderation.whitelistUsers || [],
-        moderation
+        { ...moderation, learningTrainingExcludedUsers: [...learnedAuto] }
       );
 
       const update = {
