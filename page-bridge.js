@@ -22,6 +22,14 @@
     window.postMessage({ source: SOURCE, type: 'HISTORY_PROGRESS', payload: { updatedAt: Date.now(), ...payload } }, '*');
   }
 
+  function emitCommentPanelStatus(payload) {
+    window.postMessage({
+      source: SOURCE,
+      type: 'COMMENT_PANEL_STATUS',
+      payload: { updatedAt: Date.now(), ...payload }
+    }, '*');
+  }
+
   function emitComment(comment) {
     const key = commentKey(comment);
     if (seen.has(key)) return false;
@@ -191,6 +199,220 @@
     return [...scores.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
   }
 
+  function isElementVisible(element) {
+    if (!(element instanceof Element) || !element.isConnected) return false;
+    let node = element;
+    for (let depth = 0; node && depth < 8; depth++, node = node.parentElement) {
+      if (!(node instanceof HTMLElement)) continue;
+      if (node.getAttribute('aria-hidden') === 'true') return false;
+      const style = getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return rect.width > 2 && rect.height > 2 &&
+      rect.bottom > 0 && rect.right > 0 &&
+      rect.top < window.innerHeight && rect.left < window.innerWidth;
+  }
+
+  function buttonHasCommentIcon(button) {
+    if (!(button instanceof HTMLButtonElement)) return false;
+    const descendants = [button, ...button.querySelectorAll('*')];
+    for (const element of descendants.slice(0, 80)) {
+      const values = [
+        element.getAttribute?.('href'),
+        element.getAttribute?.('src'),
+        element.getAttribute?.('data-src'),
+        element.getAttribute?.('aria-label'),
+        element.getAttribute?.('title')
+      ];
+      try {
+        values.push(element.getAttributeNS?.('http://www.w3.org/1999/xlink', 'href'));
+      } catch (_) {}
+      if (values.some((value) => /(?:^|[\/_-])comment(?:[._/-]|$)/i.test(String(value || '')))) return true;
+    }
+    return /comment\.svg/i.test(button.innerHTML || '');
+  }
+
+  function describeCommentButton(button) {
+    if (!(button instanceof HTMLButtonElement)) return null;
+    return {
+      ariaLabel: String(button.getAttribute('aria-label') || '').slice(0, 80),
+      title: String(button.getAttribute('title') || '').slice(0, 80),
+      text: getText(button).replace(/\s+/g, ' ').slice(0, 80),
+      hasCommentIcon: buttonHasCommentIcon(button),
+      disabled: Boolean(button.disabled)
+    };
+  }
+
+  function findCommentOpenButton() {
+    const candidates = [];
+    for (const button of document.querySelectorAll('button')) {
+      if (!(button instanceof HTMLButtonElement) || !isElementVisible(button)) continue;
+      const label = String(button.getAttribute('aria-label') || '');
+      const title = String(button.getAttribute('title') || '');
+      const text = getText(button).replace(/\s+/g, ' ');
+      const controls = String(button.getAttribute('aria-controls') || '');
+      const hasIcon = buttonHasCommentIcon(button);
+      let score = 0;
+      if (hasIcon) score += 120;
+      if (/コメント/.test(label)) score += 80;
+      if (/コメント/.test(title)) score += 70;
+      if (/コメント/.test(text)) score += 55;
+      if (/comment/i.test(controls)) score += 35;
+      if (button.getAttribute('aria-expanded') === 'false' || button.getAttribute('aria-expanded') === 'true') score += 10;
+      const rect = button.getBoundingClientRect();
+      if (rect.top > window.innerHeight * 0.5) score += 8;
+      if (button.disabled) score -= 100;
+      if (score >= 50) candidates.push({ button, score });
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates[0] || null;
+  }
+
+  function visibleCommentTextarea() {
+    for (const textarea of document.querySelectorAll('textarea')) {
+      if (!isElementVisible(textarea)) continue;
+      const placeholder = String(textarea.getAttribute('placeholder') || '');
+      const label = String(textarea.getAttribute('aria-label') || '');
+      if (/コメント/.test(placeholder) || /コメント/.test(label)) return textarea;
+    }
+    return null;
+  }
+
+  function isCommentPanelOpen(button = null) {
+    if (button instanceof HTMLButtonElement) {
+      if (button.getAttribute('aria-expanded') === 'true') return true;
+      if (button.getAttribute('aria-pressed') === 'true') return true;
+    }
+    if (visibleCommentTextarea()) return true;
+    const scroller = findCommentScrollContainer();
+    if (scroller && isElementVisible(scroller)) {
+      const visibleRows = [...scroller.querySelectorAll('li, [role="listitem"], [class*="comment" i]')]
+        .slice(-30)
+        .filter(isElementVisible);
+      if (visibleRows.length >= 2) return true;
+    }
+    return false;
+  }
+
+  function revealPlayerControls() {
+    const x = Math.max(1, Math.round(window.innerWidth * 0.72));
+    const y = Math.max(1, Math.round(window.innerHeight * 0.72));
+    const target = document.elementFromPoint(x, y) || document.querySelector('video') || document.body;
+    for (const type of ['mouseover', 'mousemove', 'pointermove']) {
+      try {
+        target.dispatchEvent(new MouseEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          clientX: x,
+          clientY: y,
+          view: window
+        }));
+      } catch (_) {}
+    }
+  }
+
+  async function openCommentPanel(requestId) {
+    emitCommentPanelStatus({
+      status: 'starting',
+      requestId,
+      message: 'コメント欄を確認しています…'
+    });
+
+    if (isCommentPanelOpen()) {
+      scanVisibleComments();
+      emitCommentPanelStatus({
+        status: 'success',
+        requestId,
+        alreadyOpen: true,
+        message: 'コメント欄はすでに開いています。'
+      });
+      return;
+    }
+
+    let candidate = null;
+    for (let attempt = 1; attempt <= 8; attempt++) {
+      revealPlayerControls();
+      await wait(attempt === 1 ? 350 : 600);
+      candidate = findCommentOpenButton();
+      if (candidate) break;
+    }
+
+    if (!candidate) {
+      emitCommentPanelStatus({
+        status: 'error',
+        requestId,
+        message: 'コメント欄を開くボタンを見つけられませんでした。ABEMAの視聴画面を開いた状態で再試行してください。'
+      });
+      return;
+    }
+
+    const { button } = candidate;
+    const descriptor = describeCommentButton(button);
+    if (button.disabled) {
+      emitCommentPanelStatus({
+        status: 'error',
+        requestId,
+        button: descriptor,
+        message: 'コメントボタンは見つかりましたが、現在は無効になっています。'
+      });
+      return;
+    }
+
+    if (isCommentPanelOpen(button)) {
+      scanVisibleComments();
+      emitCommentPanelStatus({
+        status: 'success',
+        requestId,
+        alreadyOpen: true,
+        button: descriptor,
+        message: 'コメント欄はすでに開いています。'
+      });
+      return;
+    }
+
+    emitCommentPanelStatus({
+      status: 'clicking',
+      requestId,
+      button: descriptor,
+      message: 'コメントボタンを検出しました。開いています…'
+    });
+
+    try {
+      button.click();
+    } catch (error) {
+      emitCommentPanelStatus({
+        status: 'error',
+        requestId,
+        button: descriptor,
+        message: `コメントボタンのクリックに失敗しました: ${String(error?.message || error)}`
+      });
+      return;
+    }
+
+    for (let check = 1; check <= 12; check++) {
+      await wait(350);
+      scanVisibleComments();
+      if (isCommentPanelOpen(button)) {
+        emitCommentPanelStatus({
+          status: 'success',
+          requestId,
+          alreadyOpen: false,
+          button: descriptor,
+          message: 'コメント欄を自動で開けました。'
+        });
+        return;
+      }
+    }
+
+    emitCommentPanelStatus({
+      status: 'error',
+      requestId,
+      button: descriptor,
+      message: 'コメントボタンは押せましたが、コメント欄が開いたことを確認できませんでした。'
+    });
+  }
+
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function loadHistory(requestId) {
@@ -297,6 +519,8 @@
       applyMute();
     } else if (data.type === 'RESCAN') {
       scanVisibleComments();
+    } else if (data.type === 'OPEN_COMMENT_PANEL') {
+      openCommentPanel(data.payload?.requestId || Date.now());
     } else if (data.type === 'LOAD_HISTORY') {
       loadHistory(data.payload?.requestId || Date.now());
     } else if (data.type === 'CANCEL_HISTORY') {
