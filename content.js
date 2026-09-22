@@ -12,7 +12,15 @@
     duplicateWindowSec: 60,
     ngEnabled: true,
     ngWords: [],
-    whitelistUsers: []
+    whitelistUsers: [],
+    learningEnabled: false,
+    learningMinComments: 5,
+    learningMinMutedUsers: 3,
+    learningMaxCommentsPerUser: 40,
+    learningCandidateThreshold: 0.25,
+    learningAutoMute: false,
+    learningAutoMuteThreshold: 0.40,
+    learningNormalPenalty: 0.75
   };
 
   let queue = [];
@@ -22,6 +30,9 @@
   let mutedUsersCache = new Set();
   let whitelistCache = new Set();
   const userActivity = new Map();
+  let learningTimer = null;
+  let learningRunning = false;
+  let lastLearningRun = 0;
 
   function isContextValid() {
     return contextValid && Boolean(globalThis.chrome?.runtime?.id);
@@ -121,6 +132,85 @@
     }
   }
 
+  function scheduleLearningAnalysis(delay = 8000) {
+    if (!moderation.learningEnabled || !globalThis.ABEMACommentLearning || !isContextValid()) return;
+    if (learningTimer) return;
+    learningTimer = setTimeout(() => {
+      learningTimer = null;
+      runLearningAnalysis();
+    }, Math.max(0, delay));
+  }
+
+  async function runLearningAnalysis() {
+    if (learningRunning || !moderation.learningEnabled || !globalThis.ABEMACommentLearning || !isContextValid()) return;
+    learningRunning = true;
+    lastLearningRun = Date.now();
+    try {
+      const data = await chrome.storage.local.get(['comments', 'mutedUsers', 'autoMuteLog', 'learningAutoMutedUsers']);
+      const allMuted = (data.mutedUsers || []).map(String);
+      const learnedAuto = new Set((data.learningAutoMutedUsers || []).map(String));
+      const result = ABEMACommentLearning.analyze(
+        Array.isArray(data.comments) ? data.comments : [],
+        allMuted,
+        moderation.whitelistUsers || [],
+        { ...moderation, learningTrainingExcludedUsers: [...learnedAuto] }
+      );
+
+      const update = {
+        learningStatus: {
+          ready: !!result.ready,
+          reason: result.reason || '',
+          trainingUsers: result.trainingUsers || 0,
+          normalUsers: result.normalUsers || 0,
+          analyzedUsers: result.analyzedUsers || 0,
+          candidateCount: result.candidates?.length || 0,
+          updatedAt: Date.now()
+        }
+      };
+
+      if (result.ready && moderation.learningAutoMute) {
+        const threshold = Math.max(
+          Number(moderation.learningCandidateThreshold || 0.25),
+          Number(moderation.learningAutoMuteThreshold || 0.40)
+        );
+        const muted = new Set(allMuted);
+        const whitelist = new Set((moderation.whitelistUsers || []).map(String));
+        const autoUsers = new Set(learnedAuto);
+        const log = Array.isArray(data.autoMuteLog) ? [...data.autoMuteLog] : [];
+        let changed = false;
+
+        for (const candidate of result.candidates || []) {
+          if (candidate.score < threshold || muted.has(candidate.userId) || whitelist.has(candidate.userId)) continue;
+          muted.add(candidate.userId);
+          autoUsers.add(candidate.userId);
+          changed = true;
+          log.push({
+            userId: candidate.userId,
+            reason: `学習型ミュート 類似度 ${(candidate.score * 100).toFixed(1)}%`,
+            message: (candidate.sample || []).join(' / '),
+            commentAt: Date.now(),
+            mutedAt: Date.now(),
+            pageTitle: document.title,
+            patterns: candidate.patterns || []
+          });
+        }
+
+        if (changed) {
+          mutedUsersCache = muted;
+          update.mutedUsers = [...muted];
+          update.learningAutoMutedUsers = [...autoUsers];
+          update.autoMuteLog = log.slice(-500);
+        }
+      }
+
+      await chrome.storage.local.set(update);
+    } catch (error) {
+      if (!invalidateContext(error)) console.warn('[ABEMA Comment Analyzer] learned mute analysis failed:', error);
+    } finally {
+      learningRunning = false;
+    }
+  }
+
   async function loadRuntimeSettings() {
     if (!isContextValid()) return;
     try {
@@ -129,6 +219,7 @@
       moderation = { ...DEFAULT_MODERATION, ...(data.moderationSettings || {}) };
       whitelistCache = new Set((moderation.whitelistUsers || []).map(String));
       postToPage('SET_MUTED_USERS', [...mutedUsersCache]);
+      scheduleLearningAnalysis(1500);
     } catch (error) {
       if (!invalidateContext(error)) console.warn('[ABEMA Comment Analyzer] settings load failed:', error);
     }
@@ -158,6 +249,7 @@
         .sort((a, b) => Number(a.createdAtMs || a.observedAt) - Number(b.createdAtMs || b.observedAt))
         .slice(-MAX_COMMENTS);
       await chrome.storage.local.set({ comments: merged, lastCommentAt: now });
+      if (moderation.learningEnabled && Date.now() - lastLearningRun > 12000) scheduleLearningAnalysis(3000);
     } catch (error) {
       if (!invalidateContext(error)) console.warn('[ABEMA Comment Analyzer] flush failed:', error);
     } finally {
@@ -205,12 +297,15 @@
       if (changes.mutedUsers) {
         mutedUsersCache = new Set((changes.mutedUsers.newValue || []).map(String));
         postToPage('SET_MUTED_USERS', [...mutedUsersCache]);
+        scheduleLearningAnalysis(1000);
       }
       if (changes.moderationSettings) {
         moderation = { ...DEFAULT_MODERATION, ...(changes.moderationSettings.newValue || {}) };
         whitelistCache = new Set((moderation.whitelistUsers || []).map(String));
         userActivity.clear();
+        scheduleLearningAnalysis(500);
       }
+      if (changes.learningRebuildRequest) scheduleLearningAnalysis(0);
     });
   }
 
