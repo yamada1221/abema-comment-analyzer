@@ -295,6 +295,73 @@
     return false;
   }
 
+  function findModalRootForButton(button) {
+    if (!(button instanceof HTMLButtonElement)) return null;
+    const semantic = button.closest('dialog, [role="dialog"], [aria-modal="true"]');
+    if (semantic instanceof Element && isElementVisible(semantic)) return semantic;
+
+    let node = button.parentElement;
+    for (let depth = 0; node && depth < 8; depth++, node = node.parentElement) {
+      if (!(node instanceof HTMLElement) || !isElementVisible(node)) continue;
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      const z = Number.parseInt(style.zIndex, 10);
+      const isOverlay = style.position === 'fixed' &&
+        rect.width >= Math.min(260, window.innerWidth * 0.45) &&
+        rect.height >= 80 &&
+        rect.width <= window.innerWidth + 8 &&
+        rect.height <= window.innerHeight + 8 &&
+        (Number.isFinite(z) ? z > 0 : true);
+      const hasChoices = node.querySelectorAll('button').length >= 2;
+      const nearCenter = rect.left < window.innerWidth * 0.75 &&
+        rect.right > window.innerWidth * 0.25 &&
+        rect.top < window.innerHeight * 0.75 &&
+        rect.bottom > window.innerHeight * 0.25;
+      if (isOverlay && hasChoices && nearCenter) return node;
+    }
+    return null;
+  }
+
+  function findVisibleLaterDialogButton() {
+    const candidates = [];
+    for (const button of document.querySelectorAll('button')) {
+      if (!(button instanceof HTMLButtonElement) || button.disabled || !isElementVisible(button)) continue;
+      const labels = [
+        getText(button),
+        button.getAttribute('aria-label') || '',
+        button.getAttribute('title') || ''
+      ].map((value) => String(value).replace(/\s+/g, '').trim());
+      const exactLater = labels.some((value) => value === '後で' || value === 'あとで');
+      if (!exactLater) continue;
+      const modal = findModalRootForButton(button);
+      if (!modal) continue;
+      let score = 0;
+      if (button.closest('dialog, [role="dialog"], [aria-modal="true"]')) score += 100;
+      const style = getComputedStyle(modal);
+      if (style.position === 'fixed') score += 25;
+      if (modal.querySelectorAll('button').length >= 2) score += 15;
+      candidates.push({ button, modal, score });
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates[0] || null;
+  }
+
+  async function dismissBlockingLaterDialog() {
+    const candidate = findVisibleLaterDialogButton();
+    if (!candidate) return false;
+    const { button, modal } = candidate;
+    try {
+      button.click();
+    } catch (_) {
+      return false;
+    }
+    for (let i = 0; i < 8; i++) {
+      await wait(150);
+      if (!button.isConnected || !isElementVisible(button) || !modal.isConnected || !isElementVisible(modal)) return true;
+    }
+    return !isElementVisible(button);
+  }
+
   function revealPlayerControls() {
     const x = Math.max(1, Math.round(window.innerWidth * 0.72));
     const y = Math.max(1, Math.round(window.innerHeight * 0.72));
@@ -319,19 +386,27 @@
       message: 'コメント欄を確認しています…'
     });
 
+    let dismissedLaterDialog = await dismissBlockingLaterDialog();
+    if (dismissedLaterDialog) await wait(250);
+
     if (isCommentPanelOpen()) {
       scanVisibleComments();
       emitCommentPanelStatus({
         status: 'success',
         requestId,
         alreadyOpen: true,
-        message: 'コメント欄はすでに開いています。'
+        dismissedLaterDialog,
+        message: dismissedLaterDialog ? '「後で」の案内を閉じました。コメント欄はすでに開いています。' : 'コメント欄はすでに開いています。'
       });
       return;
     }
 
     let candidate = null;
     for (let attempt = 1; attempt <= 8; attempt++) {
+      if (attempt > 1 && await dismissBlockingLaterDialog()) {
+        dismissedLaterDialog = true;
+        await wait(250);
+      }
       revealPlayerControls();
       await wait(attempt === 1 ? 350 : 600);
       candidate = findCommentOpenButton();
@@ -399,7 +474,8 @@
           requestId,
           alreadyOpen: false,
           button: descriptor,
-          message: 'コメント欄を自動で開けました。'
+          dismissedLaterDialog,
+          message: dismissedLaterDialog ? '「後で」の案内を閉じて、コメント欄を自動で開けました。' : 'コメント欄を自動で開けました。'
         });
         return;
       }
