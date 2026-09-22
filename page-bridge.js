@@ -295,15 +295,6 @@
     return false;
   }
 
-  function normalizedButtonLabel(button) {
-    if (!(button instanceof HTMLButtonElement)) return '';
-    return [
-      getText(button),
-      button.getAttribute('aria-label') || '',
-      button.getAttribute('title') || ''
-    ].join(' ').replace(/\s+/g, ' ').trim();
-  }
-
   function findModalRootForButton(button) {
     if (!(button instanceof HTMLButtonElement)) return null;
     const semantic = button.closest('dialog, [role="dialog"], [aria-modal="true"]');
@@ -395,7 +386,7 @@
       message: 'コメント欄を確認しています…'
     });
 
-    const dismissedLaterDialog = await dismissBlockingLaterDialog();
+    let dismissedLaterDialog = await dismissBlockingLaterDialog();
     if (dismissedLaterDialog) await wait(250);
 
     if (isCommentPanelOpen()) {
@@ -412,7 +403,10 @@
 
     let candidate = null;
     for (let attempt = 1; attempt <= 8; attempt++) {
-      if (attempt > 1) await dismissBlockingLaterDialog();
+      if (attempt > 1 && await dismissBlockingLaterDialog()) {
+        dismissedLaterDialog = true;
+        await wait(250);
+      }
       revealPlayerControls();
       await wait(attempt === 1 ? 350 : 600);
       candidate = findCommentOpenButton();
@@ -481,7 +475,7 @@
           alreadyOpen: false,
           button: descriptor,
           dismissedLaterDialog,
-        message: dismissedLaterDialog ? '「後で」の案内を閉じて、コメント欄を自動で開けました。' : 'コメント欄を自動で開けました。'
+          message: dismissedLaterDialog ? '「後で」の案内を閉じて、コメント欄を自動で開けました。' : 'コメント欄を自動で開けました。'
         });
         return;
       }
