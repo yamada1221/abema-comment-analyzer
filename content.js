@@ -257,6 +257,99 @@
     }
   }
 
+  function visibleForProgramDetection(element) {
+    if (!(element instanceof Element) || !element.isConnected) return false;
+    let node = element;
+    for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+      if (!(node instanceof HTMLElement)) continue;
+      const style = getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+      if (node.getAttribute('aria-hidden') === 'true') return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return rect.width > 2 && rect.height > 2 &&
+      rect.bottom > 0 && rect.right > 0 &&
+      rect.top < window.innerHeight && rect.left < window.innerWidth;
+  }
+
+  function nearVideo(element) {
+    const video = document.querySelector('video');
+    if (!(video instanceof Element) || !(element instanceof Element)) return false;
+    const vr = video.getBoundingClientRect();
+    const er = element.getBoundingClientRect();
+    if (vr.width < 20 || vr.height < 20) return false;
+    const margin = 260;
+    return er.right >= vr.left - margin &&
+      er.left <= vr.right + margin &&
+      er.bottom >= vr.top - margin &&
+      er.top <= vr.bottom + margin;
+  }
+
+  function detectProgramKeyword(keyword) {
+    const rawKeyword = String(keyword || '').trim();
+    const normalizedKeyword = rawKeyword.toLowerCase().normalize('NFKC');
+    const samples = [];
+    let bestScore = 0;
+
+    const add = (source, text, score, element = null) => {
+      const value = String(text || '').replace(/\s+/g, ' ').trim();
+      if (!value || !normalizedKeyword) return;
+      if (!value.toLowerCase().normalize('NFKC').includes(normalizedKeyword)) return;
+      let finalScore = score;
+      if (element && nearVideo(element)) finalScore += 2;
+      bestScore = Math.max(bestScore, finalScore);
+      if (!samples.some((item) => item.text === value && item.source === source)) {
+        samples.push({ source, text: value.slice(0, 180), score: finalScore });
+      }
+    };
+
+    add('document.title', document.title, 8);
+    add('meta:og:title', document.querySelector('meta[property="og:title"]')?.content, 7);
+    add('meta:twitter:title', document.querySelector('meta[name="twitter:title"]')?.content, 7);
+
+    for (const element of document.querySelectorAll('h1,h2,h3,h4,[role="heading"]')) {
+      if (!visibleForProgramDetection(element)) continue;
+      add('heading', element.textContent, 6, element);
+    }
+
+    const selectors = [
+      '[class*="program" i]',
+      '[class*="title" i]',
+      '[data-testid*="program" i]',
+      '[data-testid*="title" i]',
+      '[aria-label*="番組"]'
+    ];
+    const seenElements = new Set();
+    for (const selector of selectors) {
+      let count = 0;
+      for (const element of document.querySelectorAll(selector)) {
+        if (seenElements.has(element) || !visibleForProgramDetection(element)) continue;
+        seenElements.add(element);
+        const text = String(element.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!text || text.length > 220) continue;
+        add('program-title-candidate', text, 4, element);
+        if (++count >= 80) break;
+      }
+    }
+
+    samples.sort((a, b) => b.score - a.score);
+    const bodyContains = normalizedKeyword
+      ? String(document.body?.innerText || '').toLowerCase().normalize('NFKC').includes(normalizedKeyword)
+      : false;
+
+    return {
+      ok: true,
+      matched: bestScore >= 6,
+      score: bestScore,
+      keyword: rawKeyword,
+      pageTitle: document.title,
+      url: location.href,
+      bodyContains,
+      samples: samples.slice(0, 8),
+      checkedAt: Date.now()
+    };
+  }
+
   window.addEventListener('message', async (event) => {
     if (!contextValid || event.source !== window) return;
     const d = event.data;
@@ -285,7 +378,9 @@
   if (isContextValid()) {
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (!message || message.source !== SOURCE) return;
-      if (message.type === 'OPEN_COMMENT_PANEL_REQUEST') {
+      if (message.type === 'AUTO_PROGRAM_STATE_REQUEST') {
+        sendResponse(detectProgramKeyword(message.keyword));
+      } else if (message.type === 'OPEN_COMMENT_PANEL_REQUEST') {
         postToPage('OPEN_COMMENT_PANEL', { requestId: message.requestId });
         sendResponse({ ok: true, title: document.title });
       } else if (message.type === 'LOAD_HISTORY_REQUEST') {
