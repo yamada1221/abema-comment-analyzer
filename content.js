@@ -309,7 +309,13 @@
 
     for (const element of document.querySelectorAll('h1,h2,h3,h4,[role="heading"]')) {
       if (!visibleForProgramDetection(element)) continue;
-      add('heading', element.textContent, 6, element);
+      add('heading', element.textContent, 4, element);
+    }
+
+    for (const element of document.querySelectorAll('[aria-current="true"]')) {
+      if (!visibleForProgramDetection(element)) continue;
+      const text = String(element.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text.length <= 220) add('aria-current', text, 6, element);
     }
 
     const selectors = [
