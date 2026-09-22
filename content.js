@@ -17,9 +17,9 @@
     learningMinComments: 5,
     learningMinMutedUsers: 3,
     learningMaxCommentsPerUser: 40,
-    learningCandidateThreshold: 0.58,
+    learningCandidateThreshold: 0.25,
     learningAutoMute: false,
-    learningAutoMuteThreshold: 0.78,
+    learningAutoMuteThreshold: 0.40,
     learningNormalPenalty: 0.75
   };
 
@@ -171,8 +171,8 @@
 
       if (result.ready && moderation.learningAutoMute) {
         const threshold = Math.max(
-          Number(moderation.learningCandidateThreshold || 0.58),
-          Number(moderation.learningAutoMuteThreshold || 0.78)
+          Number(moderation.learningCandidateThreshold || 0.25),
+          Number(moderation.learningAutoMuteThreshold || 0.40)
         );
         const muted = new Set(allMuted);
         const whitelist = new Set((moderation.whitelistUsers || []).map(String));
