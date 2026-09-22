@@ -119,9 +119,34 @@ async function waitForContent(tabId, keyword, maxAttempts = 12) {
 async function ensureSession(settings, windowKey) {
   const data = await chrome.storage.local.get(['autoProgramSession', 'captureEnabled']);
   let session = data.autoProgramSession || null;
+
   if (session?.windowKey === windowKey) {
-    const tab = await getTab(session.tabId);
+    let tab = await getTab(session.tabId);
     if (tab) return { session, tab };
+
+    tab = await findExistingTargetTab(settings);
+    let ownedTab = false;
+    if (!tab) {
+      tab = await chrome.tabs.create({ url: settings.url, active: !!settings.openActive });
+      ownedTab = true;
+    }
+    session = {
+      ...session,
+      tabId: tab.id,
+      ownedTab,
+      missingPolls: 0,
+      reopenedAt: Date.now()
+    };
+    await chrome.storage.local.set({
+      autoProgramSession: session,
+      captureEnabled: session.active ? true : false
+    });
+    await setStatus('waiting-page', {
+      message: 'ABEMAタブが閉じられていたため再度開きました。',
+      tabId: tab.id,
+      windowKey
+    });
+    return { session, tab };
   }
 
   let tab = await findExistingTargetTab(settings);
