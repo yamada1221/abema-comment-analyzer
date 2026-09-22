@@ -145,11 +145,12 @@
     const settings = { ...DEFAULTS, ...options };
     const profiles = buildProfiles(comments, Math.max(5, Number(settings.learningMaxCommentsPerUser) || 40));
     const muted = new Set((mutedUsers || []).map(String));
+    const trainingExcluded = new Set((settings.learningTrainingExcludedUsers || []).map(String));
     const whitelist = new Set((whitelistUsers || []).map(String));
     const minComments = Math.max(2, Number(settings.learningMinComments) || 5);
     const minMutedUsers = Math.max(1, Number(settings.learningMinMutedUsers) || 3);
 
-    const trainingIds = [...muted].filter((id) => !whitelist.has(id) && (profiles.get(id)?.commentCount || 0) >= minComments);
+    const trainingIds = [...muted].filter((id) => !trainingExcluded.has(id) && !whitelist.has(id) && (profiles.get(id)?.commentCount || 0) >= minComments);
     if (trainingIds.length < minMutedUsers) {
       return {
         ready: false,
