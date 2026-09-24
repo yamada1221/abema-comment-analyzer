@@ -4,7 +4,7 @@
 <main><div id="historyStatus" style="margin:0 0 12px;color:#aaa"></div>
 <section class="chartbox" style="margin-bottom:16px"><div class="titleRow"><h2>コメント欄 自動オープンテスト</h2><span id="commentPanelOpenStatus" style="color:#aaa"></span></div><p style="color:#aaa">将来の番組自動起動用テストです。ABEMAの視聴画面を開いた状態で実行し、コメント欄が自動で開くか確認します。</p><button id="openCommentPanelTest">コメント欄を自動で開くテスト</button></section>
 <section class="chartbox" style="margin-bottom:16px"><div class="titleRow"><h2>指定番組の自動起動</h2><label><input id="autoProgramEnabled" type="checkbox"> 有効</label></div>
-<p style="color:#aaa">監視時間帯になるとABEMAを自動で開き、指定した番組名を画面上で検出したときだけコメント記録を開始します。番組名を2回連続で見失うか監視時間帯を過ぎると終了します。</p>
+<p style="color:#aaa">監視時間帯になるとABEMAを自動で開き、指定した番組名を画面上で検出したときにコメント記録を開始します。開始後は番組名表示が一時的に消えても記録を継続し、監視終了時刻で終了します。</p>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
 <div><label>番組名<br><input id="autoProgramKeyword" type="text" value="報道ステーション" style="width:100%"></label></div>
 <div><label>ABEMA URL<br><input id="autoProgramUrl" type="url" value="https://abema.tv/now-on-air/abema-news" style="width:100%"></label></div>
