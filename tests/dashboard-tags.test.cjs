@@ -44,7 +44,7 @@ async function dashboard(store) {
   const w = dom.window;
   w.chrome = {
     storage: { local: store.local, onChanged: { addListener: listener => store.listeners.push(listener) } },
-    runtime: { getManifest: () => ({ version: '0.8.0' }) }
+    runtime: { getManifest: () => ({ version: '0.9.0' }) }
   };
   Object.defineProperty(w.navigator, 'locks', { value: { request: store.lock } });
   w.HTMLCanvasElement.prototype.getContext = () => ({ clearRect() {}, fillRect() {}, fillText() {} });
@@ -52,7 +52,7 @@ async function dashboard(store) {
   w.confirm = () => true;
   for (const file of ['user-tags.js', 'learning-model.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
   await settle();
-  assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.8.0 / 保存形式 2');
+  assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.9.0 / 保存形式 3');
   assert.doesNotMatch(w.document.getElementById('transferStatus').textContent, /失敗/);
   const el = id => w.document.getElementById(id);
   const input = value => { el('userTagsInput').value = value; el('userTagsInput').dispatchEvent(new w.Event('input')); };
@@ -76,7 +76,7 @@ test('upgrade, edit, filter, refresh, export and expiry preserve user data', asy
   const store = fixture(), page = await dashboard(store);
   const { w, el, input } = page;
   try {
-    assert.equal(store.state.storageSchemaVersion, 2);
+    assert.equal(store.state.storageSchemaVersion, 3);
     w.selectUser('user-a');
     input(' 要観察、定型文,要観察');
     await w.saveUserTags();
@@ -101,7 +101,7 @@ test('upgrade, edit, filter, refresh, export and expiry preserve user data', asy
     assert.match(downloads.at(-1).text, /^time,userId,message,pageTitle,userTags/);
     await w.exportTransfer();
     const payload = JSON.parse(downloads.at(-1).text);
-    assert.equal(payload.schemaVersion, 2);
+    assert.equal(payload.schemaVersion, 3);
     assert.deepEqual(payload.data.userTags, store.state.userTags);
     await store.local.set({ comments: [] });
     await settle();
@@ -176,4 +176,24 @@ test('arbitrary IDs, HTML-looking tags, presets and validation are safe in the U
     el('search').value = '要観察'; el('search').oninput();
     assert.equal(w.document.querySelectorAll('#usersBody tr').length, 1);
   } finally { page.close(); }
+});
+
+test('learning memory survives transfer and old backups; imports remove ineligible samples', async () => {
+  const store=fixture();
+  store.state.learningMemory={version:1,samples:[{userId:'muted-existing',message:'test',createdAtMs:Date.now()}]};
+  const page=await dashboard(store);
+  try {
+    let payload;
+    page.w.download=(_name,text)=>{payload=JSON.parse(text);};
+    await page.w.exportTransfer();
+    assert.equal(payload.data.learningMemory.samples.length,1);
+    await store.local.set({learningMemory:{version:1,samples:[]}});
+    await page.w.importTransferFile({text:async()=>JSON.stringify(payload)});
+    assert.equal(store.state.learningMemory.samples.length,1);
+    await page.w.importTransferFile({text:async()=>JSON.stringify({format:'abema-comment-analyzer-transfer',schemaVersion:2,data:{userTags:{}}})});
+    assert.equal(store.state.learningMemory.samples.length,1);
+    payload.data.mutedUsers=[];
+    await page.w.importTransferFile({text:async()=>JSON.stringify(payload)});
+    assert.equal(store.state.learningMemory.samples.length,0);
+  } finally {page.close();}
 });

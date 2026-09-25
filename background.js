@@ -1,3 +1,4 @@
+importScripts('learning-model.js');
 const SOURCE = 'abema-comment-analyzer';
 const ALARM_NAME = 'auto-program-watch';
 const DEFAULT_AUTO_PROGRAM = {
@@ -413,3 +414,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 setupAlarm();
+
+// A single writer serializes learning-memory updates across tabs and dashboards.
+let learningMemoryQueue = Promise.resolve();
+function refreshLearningMemory() {
+  learningMemoryQueue = learningMemoryQueue.catch(() => {}).then(() => navigator.locks.request('abema-learning-memory', async () => {
+    const d = await chrome.storage.local.get(['learningMemory', 'comments', 'mutedUsers', 'learningAutoMutedUsers', 'moderationSettings']);
+    const cfg = d.moderationSettings || {};
+    const memory = ABEMACommentLearning.updateMemory(d.learningMemory,
+      cfg.learningEnabled ? d.comments : [], d.mutedUsers,
+      [...(d.learningAutoMutedUsers || []), ...(cfg.whitelistUsers || [])]);
+    if (JSON.stringify(memory) !== JSON.stringify(d.learningMemory)) await chrome.storage.local.set({ learningMemory: memory });
+  }));
+  learningMemoryQueue.catch(error => console.warn('[ABEMA] Learning memory save failed:', error));
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && ['comments', 'mutedUsers', 'learningAutoMutedUsers', 'moderationSettings', 'lastTransferImportAt'].some(key => changes[key])) refreshLearningMemory();
+});
+refreshLearningMemory();

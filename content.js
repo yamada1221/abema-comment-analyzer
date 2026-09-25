@@ -146,14 +146,14 @@
     learningRunning = true;
     lastLearningRun = Date.now();
     try {
-      const data = await chrome.storage.local.get(['comments', 'mutedUsers', 'autoMuteLog', 'learningAutoMutedUsers']);
+      const data = await chrome.storage.local.get(['comments', 'mutedUsers', 'autoMuteLog', 'learningAutoMutedUsers', 'learningMemory']);
       const allMuted = (data.mutedUsers || []).map(String);
       const learnedAuto = new Set((data.learningAutoMutedUsers || []).map(String));
       const result = ABEMACommentLearning.analyze(
         Array.isArray(data.comments) ? data.comments : [],
         allMuted,
         moderation.whitelistUsers || [],
-        { ...moderation, learningTrainingExcludedUsers: [...learnedAuto] }
+        { ...moderation, learningMemory: data.learningMemory, learningTrainingExcludedUsers: [...learnedAuto] }
       );
 
       const update = {
@@ -415,6 +415,7 @@
         userActivity.clear();
         scheduleLearningAnalysis(500);
       }
+      if (changes.learningMemory) scheduleLearningAnalysis(500);
       if (changes.learningRebuildRequest) scheduleLearningAnalysis(0);
     });
   }

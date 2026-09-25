@@ -12,7 +12,7 @@
     return String(message || '')
       .toLowerCase()
       .normalize('NFKC')
-      .replace(/https?:\/\/\S+/g, 'URL')
+      .replace(/https?:\/\/\S+/g, 'url')
       .replace(/\d{3,}/g, '0')
       .replace(/[\s\p{P}\p{S}]+/gu, '')
       .replace(/(.)\1{4,}/g, '$1$1$1$1')
@@ -31,6 +31,28 @@
       }
     }
     return set;
+  }
+
+  // Bounded, normalized samples; no raw page titles or full comment archive.
+  function updateMemory(memory, comments, mutedUsers, excludedUsers = [], now = Date.now()) {
+    const allowed = new Set((mutedUsers || []).map(String));
+    for (const id of excludedUsers) allowed.delete(String(id));
+    const grouped = new Map();
+    const samples = Array.isArray(memory?.samples) ? memory.samples : [];
+    for (const c of [...samples, ...(Array.isArray(comments) ? comments : [])]) {
+      const userId = String(c?.userId || '');
+      const time = Number(c?.createdAtMs || c?.observedAt || 0);
+      const message = normalizeMessage(c?.message);
+      if (!allowed.has(userId) || userId.length > 128 || !message ||
+          !Number.isFinite(time) || time <= 0 || time > now || now - time > 180 * 86400000) continue;
+      if (!grouped.has(userId)) grouped.set(userId, new Map());
+      // Re-reading the same comment must not refresh its age or increase its weight.
+      grouped.get(userId).set(JSON.stringify([time, message]), { userId, message, createdAtMs: time });
+    }
+    const users = [...grouped.values()].map(items => [...items.values()]
+      .sort((a,b) => a.createdAtMs - b.createdAtMs || a.message.localeCompare(b.message)).slice(-40))
+      .sort((a,b) => b[b.length-1].createdAtMs - a[a.length-1].createdAtMs).slice(0, 200);
+    return { version: 1, samples: users.flat() };
   }
 
   function buildProfiles(comments, maxCommentsPerUser) {
@@ -54,6 +76,7 @@
       profiles.set(userId, {
         userId,
         commentCount: recent.length,
+        updatedAt: Number(recent[recent.length - 1]?.createdAtMs || recent[recent.length - 1]?.observedAt || 0),
         counts,
         sample: recent.slice(-3).map((c) => String(c.message || ''))
       });
@@ -85,14 +108,14 @@
     return vector;
   }
 
-  function centroid(ids, profiles, idf) {
+  function centroid(ids, profiles, idf, now = null) {
     const result = new Map();
     let used = 0;
     for (const userId of ids) {
       const profile = profiles.get(userId);
       if (!profile) continue;
       const vector = normalizedVector(profile, idf);
-      for (const [feature, value] of vector) result.set(feature, (result.get(feature) || 0) + value);
+      for (const [feature, value] of vector) result.set(feature, (result.get(feature) || 0) + value * (now === null ? 1 : Math.pow(0.5, Math.max(0, now - profile.updatedAt) / (30 * 86400000))));
       used++;
     }
     if (!used) return { vector: result, used: 0 };
@@ -143,10 +166,15 @@
 
   function analyze(comments, mutedUsers, whitelistUsers, options = {}) {
     const settings = { ...DEFAULTS, ...options };
-    const profiles = buildProfiles(comments, Math.max(5, Number(settings.learningMaxCommentsPerUser) || 40));
+    const currentProfiles = buildProfiles(comments, Math.max(5, Number(settings.learningMaxCommentsPerUser) || 40));
     const muted = new Set((mutedUsers || []).map(String));
     const trainingExcluded = new Set((settings.learningTrainingExcludedUsers || []).map(String));
     const whitelist = new Set((whitelistUsers || []).map(String));
+    const now = Number(options.now) || Date.now();
+    const memory = updateMemory(options.learningMemory, comments, [...muted], [...trainingExcluded, ...whitelist], now);
+    const profiles = new Map(currentProfiles);
+    for (const id of muted) profiles.delete(id);
+    for (const [id, profile] of buildProfiles(memory.samples, 40)) profiles.set(id, profile);
     const minComments = Math.max(2, Number(settings.learningMinComments) || 5);
     const minMutedUsers = Math.max(1, Number(settings.learningMinMutedUsers) || 3);
 
@@ -168,7 +196,7 @@
     );
 
     const idf = buildIdf(profiles);
-    const mutedCentroid = centroid(trainingIds, profiles, idf);
+    const mutedCentroid = centroid(trainingIds, profiles, idf, now);
     const normalCentroid = centroid(normalIds, profiles, idf);
     const penalty = Math.max(0, Math.min(1.5, Number(settings.learningNormalPenalty) || 0.75));
     const discriminant = new Map();
@@ -217,5 +245,5 @@
     };
   }
 
-  globalThis.ABEMACommentLearning = { analyze, normalizeMessage };
+  globalThis.ABEMACommentLearning = { analyze, normalizeMessage, updateMemory };
 })();
