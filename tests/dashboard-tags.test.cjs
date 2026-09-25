@@ -44,7 +44,7 @@ async function dashboard(store) {
   const w = dom.window;
   w.chrome = {
     storage: { local: store.local, onChanged: { addListener: listener => store.listeners.push(listener) } },
-    runtime: { getManifest: () => ({ version: '0.9.0' }) }
+    runtime: { getManifest: () => ({ version: '0.9.1' }) }
   };
   Object.defineProperty(w.navigator, 'locks', { value: { request: store.lock } });
   w.HTMLCanvasElement.prototype.getContext = () => ({ clearRect() {}, fillRect() {}, fillText() {} });
@@ -52,7 +52,7 @@ async function dashboard(store) {
   w.confirm = () => true;
   for (const file of ['user-tags.js', 'learning-model.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
   await settle();
-  assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.9.0 / 保存形式 3');
+  assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.9.1 / 保存形式 3');
   assert.doesNotMatch(w.document.getElementById('transferStatus').textContent, /失敗/);
   const el = id => w.document.getElementById(id);
   const input = value => { el('userTagsInput').value = value; el('userTagsInput').dispatchEvent(new w.Event('input')); };

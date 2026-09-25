@@ -2,10 +2,10 @@
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ABEMA コメント分析</title><link rel="stylesheet" href="dashboard.css"></head>
 <body><header><div><h1>ABEMA コメント分析</h1><p>端末内に最大24時間保存・分析対象は自由指定</p></div><div class="actions"><label>直近 <input id="windowValue" type="number" min="1" max="1440" value="60" style="width:72px"> <select id="windowUnit"><option value="1">分</option><option value="60">時間</option></select></label><button id="applyWindow">適用</button><button id="loadHistory">過去コメントを読み込む</button><button id="cancelHistory" style="display:none">中止</button><button id="exportJson">JSON</button><button id="exportCsv">CSV</button><button id="refresh">更新</button></div></header>
 <main><div id="historyStatus" style="margin:0 0 12px;color:#aaa"></div>
-<section class="chartbox" style="margin-bottom:16px"><div class="titleRow"><h2>コメント欄 自動オープンテスト</h2><span id="commentPanelOpenStatus" style="color:#aaa"></span></div><p style="color:#aaa">将来の番組自動起動用テストです。ABEMAの視聴画面を開いた状態で実行し、コメント欄が自動で開くか確認します。</p><button id="openCommentPanelTest">コメント欄を自動で開くテスト</button></section>
+
 <section class="chartbox" style="margin-bottom:16px"><div class="titleRow"><h2>指定番組の自動起動</h2><label><input id="autoProgramEnabled" type="checkbox"> 有効</label></div>
 <p style="color:#aaa">監視時間帯になるとABEMAを自動で開き、指定した番組名を画面上で検出したときにコメント記録を開始します。開始後は番組名表示が一時的に消えても記録を継続し、監視終了時刻で終了します。</p>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px">
 <div><label>番組名<br><input id="autoProgramKeyword" type="text" value="報道ステーション" style="width:100%"></label></div>
 <div><label>ABEMA URL<br><input id="autoProgramUrl" type="url" value="https://abema.tv/now-on-air/abema-news" style="width:100%"></label></div>
 <div><label>監視開始 <input id="autoProgramStart" type="time" value="00:00"></label> <label>終了 <input id="autoProgramEnd" type="time" value="02:00"></label></div>
@@ -17,7 +17,7 @@
 <div id="autoProgramDetection" style="margin-top:6px;color:#888"></div>
 </section>
 <section class="chartbox" style="margin-bottom:16px"><div class="titleRow"><h2>更新・バージョン引継ぎ</h2><span id="versionInfo"></span></div><p style="color:#aaa">同じフォルダを上書き更新した場合はデータをそのまま利用します。別フォルダへ新版を入れる場合は、旧版で引継ぎファイルを書き出して新版で読み込んでください。</p><div class="actions" style="justify-content:flex-start"><button id="exportTransfer">引継ぎデータを書き出す</button><button id="importTransfer">引継ぎデータを読み込む</button><input id="transferFile" type="file" accept="application/json,.json" style="display:none"><a href="https://github.com/yamada1221/abema-comment-analyzer/archive/refs/heads/main.zip" target="_blank" rel="noreferrer" style="display:inline-block;padding:9px 12px;border:1px solid #555;border-radius:6px;color:inherit;text-decoration:none">最新版ZIP</a></div><div id="transferStatus" style="margin-top:8px;color:#aaa"></div></section>
-<section class="chartbox" style="margin-bottom:16px"><div class="titleRow"><h2>自動ミュート</h2><label><input id="modEnabled" type="checkbox"> 有効</label></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
+<section class="chartbox" style="margin-bottom:16px"><div class="titleRow"><h2>自動ミュート</h2><label><input id="modEnabled" type="checkbox"> 有効</label></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px">
 <div><label><input id="rateEnabled" type="checkbox"> 高頻度投稿</label><div><input id="rateCount" type="number" min="2" value="8" style="width:64px"> 件 / <input id="rateWindowSec" type="number" min="1" value="30" style="width:64px"> 秒でミュート</div></div>
 <div><label><input id="duplicateEnabled" type="checkbox"> 同文・類似連投</label><div><input id="duplicateCount" type="number" min="2" value="3" style="width:64px"> 回 / <input id="duplicateWindowSec" type="number" min="1" value="60" style="width:64px"> 秒でミュート</div></div>
 <div><label><input id="ngEnabled" type="checkbox"> NGワード</label><textarea id="ngWords" rows="5" placeholder="1行1件。部分一致で判定" style="width:100%"></textarea></div>
@@ -39,5 +39,5 @@
   <div class="tag-presets"><button type="button" data-tag-preset="要観察">要観察</button><button type="button" data-tag-preset="定型文">定型文</button><button type="button" data-tag-preset="掛け合い">掛け合い</button><button type="button" data-tag-preset="連投">連投</button></div>
   <div class="tag-buttons"><button id="saveUserTags" type="button">タグを保存</button><button id="resetUserTags" type="button">保存済みに戻す</button><button id="clearUserTags" type="button">すべて外す</button></div>
   <p id="tagStatus" role="status" aria-live="polite"></p>
-</div><div id="detailComments" class="comments"></div></aside></section></main>
+</div><div id="detailComments" class="comments"></div></aside></section><details id="diagnostics" class="chartbox diagnostics"><summary>診断・コメント欄テスト</summary><div class="diagnostics-body"><div class="titleRow"><h2>コメント欄 自動オープンテスト</h2><span id="commentPanelOpenStatus" style="color:#aaa"></span></div><p style="color:#aaa">コメント欄が開かないときの動作確認に使います。ABEMAの視聴画面を開いた状態で実行し、コメント欄が自動で開くか確認します。</p><button id="openCommentPanelTest">コメント欄を自動で開くテスト</button></div></details></main>
 <script src="user-tags.js"></script><script src="learning-model.js"></script><script src="dashboard.js"></script></body></html>
