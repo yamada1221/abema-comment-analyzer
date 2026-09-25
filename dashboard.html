@@ -28,6 +28,16 @@
 <div style="margin-top:14px"><h3>自動ミュート履歴</h3><div id="autoMuteLog" style="max-height:220px;overflow:auto"></div></div></section>
 <section class="summary"><div><b id="total">0</b><span>コメント</span></div><div><b id="unique">0</b><span>投稿者</span></div><div><b id="topShare">0%</b><span>上位10人の占有率</span></div><div><b id="muted">0</b><span>ミュート中</span></div></section>
 <section class="chartbox"><div class="titleRow"><h2 id="timelineTitle">コメント数推移</h2><span id="availableSpan"></span></div><canvas id="timeline" width="1200" height="220"></canvas></section>
-<section class="layout"><div><div class="titleRow"><h2>投稿者ランキング</h2><input id="search" placeholder="ID・コメント検索"></div><table><thead><tr><th>投稿者</th><th>件数</th><th>割合</th><th>平均間隔</th><th></th></tr></thead><tbody id="usersBody"></tbody></table></div>
-<aside><h2 id="detailTitle">投稿者を選択</h2><div id="detailMeta"></div><div id="detailComments" class="comments"></div></aside></section></main>
-<script src="learning-model.js"></script><script src="dashboard.js"></script></body></html>
+<section class="layout"><div><div class="titleRow"><h2>投稿者ランキング</h2><input id="search" aria-label="ID・コメント・タグ検索" placeholder="ID・コメント・タグ検索"></div><div class="tag-toolbar"><label for="tagFilter">タグで絞り込み</label><select id="tagFilter"><option value="">全ユーザー</option></select></div>
+<form id="openTagUser" class="tag-lookup"><label for="tagUserId">IDを指定してタグを編集</label><div class="actions"><input id="tagUserId" maxlength="200" placeholder="ユーザーID" required><button type="submit">開く</button></div><span id="tagLookupStatus" class="error-text" role="status"></span></form>
+<p id="userListStatus" class="muted-text"></p><div class="user-table-wrap"><table><thead><tr><th>投稿者</th><th>件数</th><th>割合</th><th>平均間隔</th><th></th></tr></thead><tbody id="usersBody"></tbody></table></div></div>
+<aside><h2 id="detailTitle">投稿者を選択</h2><div id="detailMeta"></div>
+<div id="tagEditor" hidden>
+  <label for="userTagsInput">ユーザータグ</label>
+  <p class="muted-text" id="tagHelp">カンマ・読点・改行で区切って複数登録できます。1つ32文字、12個まで。コメントの保存期限後も残ります。</p>
+  <textarea id="userTagsInput" rows="2" aria-describedby="tagHelp" placeholder="例: 要観察, 定型文, グループA"></textarea>
+  <div class="tag-presets"><button type="button" data-tag-preset="要観察">要観察</button><button type="button" data-tag-preset="定型文">定型文</button><button type="button" data-tag-preset="掛け合い">掛け合い</button><button type="button" data-tag-preset="連投">連投</button></div>
+  <div class="tag-buttons"><button id="saveUserTags" type="button">タグを保存</button><button id="resetUserTags" type="button">保存済みに戻す</button><button id="clearUserTags" type="button">すべて外す</button></div>
+  <p id="tagStatus" role="status" aria-live="polite"></p>
+</div><div id="detailComments" class="comments"></div></aside></section></main>
+<script src="user-tags.js"></script><script src="learning-model.js"></script><script src="dashboard.js"></script></body></html>

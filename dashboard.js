@@ -1,9 +1,9 @@
 const MAX_WINDOW_MINUTES=24*60; let storedComments=[],comments=[],mutedUsers=[],learningAutoMutedUsers=[],selected=null,windowMinutes=60,historyTargetTabId=null,learningResult=null,learningLastRun=0;
 const DEFAULT_MODERATION={enabled:false,rateEnabled:true,rateCount:8,rateWindowSec:30,duplicateEnabled:true,duplicateCount:3,duplicateWindowSec:60,ngEnabled:true,ngWords:[],whitelistUsers:[],learningEnabled:false,learningMinComments:5,learningMinMutedUsers:3,learningMaxCommentsPerUser:40,learningCandidateThreshold:0.25,learningAutoMute:false,learningAutoMuteThreshold:0.40,learningNormalPenalty:0.75};
 const DEFAULT_AUTO_PROGRAM={enabled:false,keyword:'報道ステーション',url:'https://abema.tv/now-on-air/abema-news',days:[2,3,4,5,6],startTime:'00:00',endTime:'02:00',closeOwnedTab:true,openActive:false,missingPollsToStop:2};
-const STORAGE_SCHEMA_VERSION=1;
+const STORAGE_SCHEMA_VERSION=2;
 const TRANSFER_FORMAT='abema-comment-analyzer-transfer';
-const TRANSFER_KEYS=['comments','mutedUsers','learningAutoMutedUsers','analysisWindowMinutes','moderationSettings','autoMuteLog','captureEnabled','lastCommentAt','autoProgramSettings'];
+const TRANSFER_KEYS=['comments','mutedUsers','learningAutoMutedUsers','analysisWindowMinutes','moderationSettings','autoMuteLog','captureEnabled','lastCommentAt','autoProgramSettings','userTags'];
 const $=id=>document.getElementById(id);
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function commentTime(c){return Number(c.createdAtMs||c.observedAt||0);}
@@ -20,17 +20,17 @@ function renderAutoMuteLog(log){const items=Array.isArray(log)?[...log].reverse(
 function setTransferStatus(message,isError=false){const el=$('transferStatus');el.textContent=message;el.style.color=isError?'#f99':'#aaa';}
 function renderLearningCandidates(settings,force=false){const box=$('learningCandidates'),status=$('learningStatus'),cfg={...DEFAULT_MODERATION,...(settings||{})};if(!cfg.learningEnabled){learningResult=null;box.innerHTML='';status.textContent='学習型ミュートは無効です。';return;}if(!globalThis.ABEMACommentLearning){box.innerHTML='';status.textContent='学習モデルを読み込めませんでした。';return;}const now=Date.now();if(force||!learningResult||now-learningLastRun>=10000){learningResult=ABEMACommentLearning.analyze(storedComments,mutedUsers,cfg.whitelistUsers||[],{...cfg,learningTrainingExcludedUsers:learningAutoMutedUsers});learningLastRun=now;}if(!learningResult.ready){box.innerHTML='';status.textContent=learningResult.reason||'学習データが不足しています。';return;}const auto=cfg.learningAutoMute?` / 自動ミュート ${Math.round(Number(cfg.learningAutoMuteThreshold||0.40)*100)}%以上`:' / 候補表示のみ';status.textContent=`学習元 ${learningResult.trainingUsers}人 / 比較対象 ${learningResult.normalUsers||0}人 / 候補 ${learningResult.candidates.length}人${auto}`;box.innerHTML=learningResult.candidates.length?learningResult.candidates.slice(0,50).map(x=>`<div style="padding:8px 0;border-top:1px solid #333"><b>${escapeHtml(x.userId)}</b> — 類似度 <b>${(x.score*100).toFixed(1)}%</b> / ${x.commentCount}件 <button data-learnmute="${escapeHtml(x.userId)}">ミュート</button> <button data-learnwhite="${escapeHtml(x.userId)}">除外</button><br><span style="color:#aaa">特徴: ${escapeHtml((x.patterns||[]).join(' / ')||'-')}</span></div>`).join(''):'候補はありません。';document.querySelectorAll('[data-learnmute]').forEach(b=>b.onclick=async()=>{const uid=b.dataset.learnmute;if(!mutedUsers.includes(uid))await toggleMute(uid);learningLastRun=0;});document.querySelectorAll('[data-learnwhite]').forEach(b=>b.onclick=async()=>{const uid=b.dataset.learnwhite;const d=await chrome.storage.local.get('moderationSettings');const next={...DEFAULT_MODERATION,...(d.moderationSettings||{})};next.whitelistUsers=[...new Set([...(next.whitelistUsers||[]).map(String),uid])];learningLastRun=0;await chrome.storage.local.set({moderationSettings:next});});}
 async function ensureStorageSchema(){const manifest=chrome.runtime.getManifest();const d=await chrome.storage.local.get(['storageSchemaVersion','installedExtensionVersion']);const current=Number(d.storageSchemaVersion)||0;if(current>STORAGE_SCHEMA_VERSION){setTransferStatus(`このデータは新しい保存形式 v${current} です。拡張機能を最新版へ更新してください。`,true);return;}if(current<STORAGE_SCHEMA_VERSION){await chrome.storage.local.set({storageSchemaVersion:STORAGE_SCHEMA_VERSION,lastSchemaMigrationAt:Date.now(),lastSchemaMigrationFrom:current});}if(d.installedExtensionVersion!==manifest.version){await chrome.storage.local.set({installedExtensionVersion:manifest.version,lastVersionUpgradeAt:Date.now(),previousExtensionVersion:d.installedExtensionVersion||null});}$('versionInfo').textContent=`v${manifest.version} / 保存形式 ${STORAGE_SCHEMA_VERSION}`;}
-async function exportTransfer(){try{const all=await chrome.storage.local.get(TRANSFER_KEYS);const data={};for(const key of TRANSFER_KEYS)if(Object.prototype.hasOwnProperty.call(all,key))data[key]=all[key];const manifest=chrome.runtime.getManifest();const payload={format:TRANSFER_FORMAT,schemaVersion:STORAGE_SCHEMA_VERSION,extensionVersion:manifest.version,exportedAt:new Date().toISOString(),data};const stamp=new Date().toISOString().replace(/[-:]/g,'').replace(/T/,'-').replace(/\..+$/,'');download(`abema-comment-analyzer-transfer-v${manifest.version}-${stamp}.json`,JSON.stringify(payload,null,2),'application/json');setTransferStatus(`引継ぎファイルを書き出しました。コメント ${Array.isArray(data.comments)?data.comments.length:0}件、ミュート ${(data.mutedUsers||[]).length}件を含みます。`);}catch(e){setTransferStatus(`書き出しに失敗しました: ${e.message||e}`,true);}}
-async function importTransferFile(file){try{if(!file)return;const text=await file.text();const payload=JSON.parse(text);if(!payload||payload.format!==TRANSFER_FORMAT||!payload.data||typeof payload.data!=='object')throw new Error('ABEMA Comment Analyzerの引継ぎファイルではありません');const schema=Number(payload.schemaVersion)||0;if(schema>STORAGE_SCHEMA_VERSION)throw new Error(`引継ぎデータの保存形式 v${schema} はこの拡張では新しすぎます。先に最新版へ更新してください`);const restore={};for(const key of TRANSFER_KEYS)if(Object.prototype.hasOwnProperty.call(payload.data,key))restore[key]=payload.data[key];restore.storageSchemaVersion=STORAGE_SCHEMA_VERSION;restore.lastTransferImportAt=Date.now();restore.lastTransferSourceVersion=String(payload.extensionVersion||'unknown');await chrome.storage.local.set(restore);setTransferStatus(`引継ぎ完了: v${payload.extensionVersion||'?'} のデータを復元しました。コメント ${Array.isArray(restore.comments)?restore.comments.length:0}件、ミュート ${(restore.mutedUsers||[]).length}件。`);await load();}catch(e){setTransferStatus(`引継ぎに失敗しました: ${e.message||e}`,true);}finally{$('transferFile').value='';}}
-async function load(renderForms=true){const d=await chrome.storage.local.get(['comments','mutedUsers','learningAutoMutedUsers','analysisWindowMinutes','historyLoadProgress','commentPanelOpenStatus','moderationSettings','autoMuteLog','autoProgramSettings','autoProgramStatus']);storedComments=Array.isArray(d.comments)?d.comments:[];mutedUsers=(d.mutedUsers||[]).map(String);learningAutoMutedUsers=(d.learningAutoMutedUsers||[]).map(String);windowMinutes=Math.min(MAX_WINDOW_MINUTES,Math.max(1,Number(d.analysisWindowMinutes)||60));syncControlsFromMinutes(windowMinutes);renderHistoryStatus(d.historyLoadProgress);renderCommentPanelOpenStatus(d.commentPanelOpenStatus);if(renderForms){renderModerationSettings(d.moderationSettings);renderAutoProgramSettings(d.autoProgramSettings);}renderAutoProgramStatus(d.autoProgramStatus);renderAutoMuteLog(d.autoMuteLog);renderLearningCandidates(d.moderationSettings);applyFilter();}
+async function exportTransfer(){try{const all=await chrome.storage.local.get(TRANSFER_KEYS);const data={};for(const key of TRANSFER_KEYS)if(Object.prototype.hasOwnProperty.call(all,key))data[key]=all[key];data.userTags=ABEMAUserTags.normalizeMap(data.userTags);const manifest=chrome.runtime.getManifest();const payload={format:TRANSFER_FORMAT,schemaVersion:STORAGE_SCHEMA_VERSION,extensionVersion:manifest.version,exportedAt:new Date().toISOString(),data};const stamp=new Date().toISOString().replace(/[-:]/g,'').replace(/T/,'-').replace(/\..+$/,'');download(`abema-comment-analyzer-transfer-v${manifest.version}-${stamp}.json`,JSON.stringify(payload,null,2),'application/json');setTransferStatus(`引継ぎファイルを書き出しました。コメント ${Array.isArray(data.comments)?data.comments.length:0}件、ミュート ${(data.mutedUsers||[]).length}件、タグ付きユーザー ${Object.keys(data.userTags).length}件を含みます。`);}catch(e){setTransferStatus(`書き出しに失敗しました: ${e.message||e}`,true);}}
+async function importTransferFile(file){try{if(!file)return;const text=await file.text();const payload=JSON.parse(text);if(!payload||payload.format!==TRANSFER_FORMAT||!payload.data||typeof payload.data!=='object')throw new Error('ABEMA Comment Analyzerの引継ぎファイルではありません');const schema=Number(payload.schemaVersion)||0;if(schema>STORAGE_SCHEMA_VERSION)throw new Error(`引継ぎデータの保存形式 v${schema} はこの拡張では新しすぎます。先に最新版へ更新してください`);const restore={};for(const key of TRANSFER_KEYS)if(Object.prototype.hasOwnProperty.call(payload.data,key))restore[key]=payload.data[key];restore.storageSchemaVersion=STORAGE_SCHEMA_VERSION;restore.lastTransferImportAt=Date.now();restore.lastTransferSourceVersion=String(payload.extensionVersion||'unknown');if(Object.prototype.hasOwnProperty.call(restore,'userTags'))restore.userTags=ABEMAUserTags.normalizeMap(restore.userTags);await withUserTagsLock(()=>chrome.storage.local.set(restore));setTransferStatus(`引継ぎ完了: v${payload.extensionVersion||'?'} のデータを復元しました。コメント ${Array.isArray(restore.comments)?restore.comments.length:0}件、ミュート ${(restore.mutedUsers||[]).length}件。${Object.prototype.hasOwnProperty.call(restore,'userTags')?'タグも復元しました。':'旧形式のため現在のタグは保持しました。'}`);await load();}catch(e){setTransferStatus(`引継ぎに失敗しました: ${e.message||e}`,true);}finally{$('transferFile').value='';}}
+async function load(renderForms=true){const d=await chrome.storage.local.get(['comments','mutedUsers','learningAutoMutedUsers','analysisWindowMinutes','historyLoadProgress','commentPanelOpenStatus','moderationSettings','autoMuteLog','autoProgramSettings','autoProgramStatus','userTags']);userTags=ABEMAUserTags.normalizeMap(d.userTags);storedComments=Array.isArray(d.comments)?d.comments:[];mutedUsers=(d.mutedUsers||[]).map(String);learningAutoMutedUsers=(d.learningAutoMutedUsers||[]).map(String);windowMinutes=Math.min(MAX_WINDOW_MINUTES,Math.max(1,Number(d.analysisWindowMinutes)||60));syncControlsFromMinutes(windowMinutes);renderHistoryStatus(d.historyLoadProgress);renderCommentPanelOpenStatus(d.commentPanelOpenStatus);if(renderForms){renderModerationSettings(d.moderationSettings);renderAutoProgramSettings(d.autoProgramSettings);}renderAutoProgramStatus(d.autoProgramStatus);renderAutoMuteLog(d.autoMuteLog);renderLearningCandidates(d.moderationSettings);applyFilter();}
 function applyFilter(){const anchor=analysisAnchor(),span=windowMinutes*60000;comments=storedComments.filter(c=>{const t=commentTime(c);return t&&anchor-t>=0&&anchor-t<=span;});render();}
 function groups(){const m=new Map();for(const c of comments){const u=String(c.userId||'unknown');if(!m.has(u))m.set(u,[]);m.get(u).push(c);}return[...m].map(([userId,list])=>({userId,list,count:list.length})).sort((a,b)=>b.count-a.count);}
 function avgGap(list){if(list.length<2)return'-';const t=list.map(commentTime).sort((a,b)=>a-b);let s=0;for(let i=1;i<t.length;i++)s+=t[i]-t[i-1];const sec=s/(t.length-1)/1000;return sec<60?`${sec.toFixed(1)}秒`:`${(sec/60).toFixed(1)}分`;}
-function render(){const gs=groups();$('total').textContent=comments.length;$('unique').textContent=gs.length;$('muted').textContent=mutedUsers.length;const top=gs.slice(0,10).reduce((s,g)=>s+g.count,0);$('topShare').textContent=comments.length?`${(top/comments.length*100).toFixed(1)}%`:'0%';$('timelineTitle').textContent=`最新コメント基準・直近${formatDuration(windowMinutes)}のコメント数推移`;renderAvailableSpan();renderTimeline();renderUsers(gs);if(selected)renderDetail(selected);}
+function render(){const gs=groups();$('total').textContent=comments.length;$('unique').textContent=gs.length;$('muted').textContent=mutedUsers.length;const top=gs.slice(0,10).reduce((s,g)=>s+g.count,0);$('topShare').textContent=comments.length?`${(top/comments.length*100).toFixed(1)}%`:'0%';$('timelineTitle').textContent=`最新コメント基準・直近${formatDuration(windowMinutes)}のコメント数推移`;renderAvailableSpan();renderTimeline();renderTagFilter();renderUsers(gs);if(selected)renderDetail(selected);}
 function renderAvailableSpan(){if(!storedComments.length){$('availableSpan').textContent='保存データなし';return;}const times=storedComments.map(commentTime).filter(Boolean);if(!times.length){$('availableSpan').textContent='保存データなし';return;}const oldest=Math.min(...times),newest=Math.max(...times);const mins=Math.max(1,Math.round((newest-oldest)/60000));$('availableSpan').textContent=`保存中: ${formatDuration(mins)} / ${storedComments.length}件 / 最新 ${new Date(newest).toLocaleString()}`;}
-function renderUsers(gs){const q=$('search').value.toLowerCase();$('usersBody').innerHTML=gs.filter(g=>!q||g.userId.toLowerCase().includes(q)||g.list.some(c=>String(c.message||'').toLowerCase().includes(q))).map(g=>`<tr data-user="${escapeHtml(g.userId)}"><td>${escapeHtml(g.userId)}</td><td>${g.count}</td><td>${comments.length?(g.count/comments.length*100).toFixed(1):0}%</td><td>${avgGap(g.list)}</td><td><button class="mute" data-mute="${escapeHtml(g.userId)}">${mutedUsers.includes(g.userId)?'解除':'ミュート'}</button></td></tr>`).join('');document.querySelectorAll('tr[data-user]').forEach(tr=>tr.onclick=e=>{if(e.target.dataset.mute)return;selected=tr.dataset.user;renderDetail(selected);});document.querySelectorAll('[data-mute]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await toggleMute(b.dataset.mute);});}
+function renderUsers(gs){const q=$('search').value.toLowerCase();const visible=tagFilteredGroups(gs).filter(g=>!q||g.userId.toLowerCase().includes(q)||ABEMAUserTags.get(userTags,g.userId).some(tag=>tag.toLowerCase().includes(q))||g.list.some(c=>String(c.message||'').toLowerCase().includes(q)));$('userListStatus').textContent=`${visible.length}ユーザー表示 / 件数・割合は分析時間内のコメントが対象です。`;$('usersBody').innerHTML=visible.map(g=>`<tr data-user="${escapeHtml(g.userId)}"><td>${escapeHtml(g.userId)}${tagBadges(g.userId)}</td><td>${g.count}</td><td>${comments.length?(g.count/comments.length*100).toFixed(1):0}%</td><td>${avgGap(g.list)}</td><td><button class="mute" data-mute="${escapeHtml(g.userId)}">${mutedUsers.includes(g.userId)?'解除':'ミュート'}</button></td></tr>`).join('');document.querySelectorAll('tr[data-user]').forEach(tr=>tr.onclick=e=>{if(e.target.dataset.mute)return;selectUser(tr.dataset.user);});document.querySelectorAll('[data-mute]').forEach(b=>b.onclick=async e=>{e.stopPropagation();await toggleMute(b.dataset.mute);});}
 async function toggleMute(uid){const set=new Set(mutedUsers),learned=new Set(learningAutoMutedUsers);if(set.has(uid)){set.delete(uid);learned.delete(uid);}else{set.add(uid);learned.delete(uid);}mutedUsers=[...set];learningAutoMutedUsers=[...learned];learningLastRun=0;await chrome.storage.local.set({mutedUsers,learningAutoMutedUsers,learningRebuildRequest:Date.now()});render();}
-function renderDetail(uid){const list=comments.filter(c=>String(c.userId)===uid).sort((a,b)=>commentTime(a)-commentTime(b));$('detailTitle').textContent=uid;$('detailMeta').innerHTML=`${list.length}件 / 平均間隔 ${avgGap(list)} <button class="mute" id="detailMute">${mutedUsers.includes(uid)?'ミュート解除':'この投稿者をミュート'}</button>`;$('detailComments').innerHTML=list.map(c=>`<div class="comment"><span class="time">${new Date(commentTime(c)).toLocaleTimeString()}</span><span class="msg">${escapeHtml(c.message)}</span></div>`).join('');$('detailMute').onclick=()=>toggleMute(uid);}
+function renderDetail(uid){syncTagEditor(uid);const list=comments.filter(c=>String(c.userId)===uid).sort((a,b)=>commentTime(a)-commentTime(b));$('detailTitle').textContent=uid;$('detailMeta').innerHTML=`${list.length}件 / 平均間隔 ${avgGap(list)} <button class="mute" id="detailMute">${mutedUsers.includes(uid)?'ミュート解除':'この投稿者をミュート'}</button>`;$('detailComments').innerHTML=list.length?list.map(c=>`<div class="comment"><span class="time">${new Date(commentTime(c)).toLocaleTimeString()}</span><span class="msg">${escapeHtml(c.message)}</span></div>`).join(''):'<p class="muted-text">分析時間内のコメントはありません。タグは継続して保存されています。</p>';$('detailMute').onclick=()=>toggleMute(uid);}
 function renderTimeline(){const cv=$('timeline'),ctx=cv.getContext('2d');const w=cv.width,h=cv.height;ctx.clearRect(0,0,w,h);const binCount=12,bins=Array(binCount).fill(0),anchor=analysisAnchor(),span=windowMinutes*60000,binMs=span/binCount;for(const c of comments){const age=anchor-commentTime(c);const idx=binCount-1-Math.floor(age/binMs);if(idx>=0&&idx<binCount)bins[idx]++;}const max=Math.max(1,...bins);ctx.fillStyle='#ccc';ctx.font='12px system-ui';for(let i=0;i<binCount;i++){const x=40+i*((w-60)/(binCount-1)),barH=(bins[i]/max)*(h-55);ctx.fillRect(x-12,h-28-barH,24,barH);ctx.fillText(String(bins[i]),x-7,h-34-barH);ctx.fillStyle='#777';const remaining=Math.round(windowMinutes-(i*(windowMinutes/(binCount-1))));const label=remaining>=60?`${(remaining/60).toFixed(remaining%60?1:0)}h`:`${remaining}m`;ctx.fillText(label,x-14,h-8);ctx.fillStyle='#ccc';}}
 function renderHistoryStatus(p){const el=$('historyStatus');if(!p){el.textContent='過去コメントを取得する場合は、ABEMAでコメント欄を表示した状態で「過去コメントを読み込む」を押してください。';$('cancelHistory').style.display='none';return;}const running=p.status==='running'||p.status==='starting';$('cancelHistory').style.display=running?'inline-block':'none';const oldest=p.oldestAt?` / 最古 ${new Date(p.oldestAt).toLocaleTimeString()}`:'';el.textContent=`${p.message||p.status}${oldest}`;}
 function renderCommentPanelOpenStatus(p){const el=$('commentPanelOpenStatus'),btn=$('openCommentPanelTest');if(!p){el.textContent='未テスト';btn.disabled=false;return;}const recent=Date.now()-Number(p.updatedAt||0)<15000;const busy=recent&&(p.status==='starting'||p.status==='clicking');btn.disabled=busy;const prefix=p.status==='success'?'成功: ':p.status==='error'?'失敗: ':'';el.textContent=prefix+(p.message||p.status||'');}
@@ -46,5 +46,144 @@ $('saveModeration').onclick=async()=>{const settings={enabled:$('modEnabled').ch
 $('applyWindow').onclick=async()=>{windowMinutes=currentWindowFromControls();await chrome.storage.local.set({analysisWindowMinutes:windowMinutes});syncControlsFromMinutes(windowMinutes);applyFilter();};
 $('loadHistory').onclick=async()=>{const id=Date.now();const tab=await findAbemaTab();if(!tab?.id){const p={status:'error',requestId:id,message:'ABEMAタブが見つかりません。ABEMAを開いてコメント欄を表示してください。',updatedAt:id};await chrome.storage.local.set({historyLoadProgress:p});renderHistoryStatus(p);return;}historyTargetTabId=tab.id;const p={status:'starting',requestId:id,message:`ABEMAタブを検出しました。取得開始: ${tab.title||'ABEMA'}`,updatedAt:id};await chrome.storage.local.set({historyLoadProgress:p});renderHistoryStatus(p);try{await chrome.tabs.sendMessage(tab.id,{source:'abema-comment-analyzer',type:'LOAD_HISTORY_REQUEST',requestId:id});}catch(e){const err={status:'error',requestId:id,message:'ABEMAタブへ接続できません。ABEMAタブを再読み込みしてから再試行してください。',updatedAt:Date.now()};await chrome.storage.local.set({historyLoadProgress:err});renderHistoryStatus(err);}};
 $('cancelHistory').onclick=async()=>{if(!historyTargetTabId){const tab=await findAbemaTab();historyTargetTabId=tab?.id||null;}if(historyTargetTabId)try{await chrome.tabs.sendMessage(historyTargetTabId,{source:'abema-comment-analyzer',type:'CANCEL_HISTORY_REQUEST',requestId:Date.now()});}catch(_){};};
-$('refresh').onclick=load;$('search').oninput=()=>renderUsers(groups());$('exportJson').onclick=()=>download('abema-comments.json',JSON.stringify(comments,null,2),'application/json');$('exportCsv').onclick=()=>{const q=s=>`"${String(s??'').replaceAll('"','""')}"`;download('abema-comments.csv',['time,userId,message,pageTitle',...comments.map(c=>[new Date(commentTime(c)).toISOString(),c.userId,c.message,c.pageTitle].map(q).join(','))].join('\n'),'text/csv');};chrome.storage.onChanged.addListener((c,a)=>{if(a!=='local')return;if(c.comments||c.mutedUsers||c.learningAutoMutedUsers||c.autoMuteLog)load(false);if(c.moderationSettings)load(true);if(c.autoProgramSettings)renderAutoProgramSettings(c.autoProgramSettings.newValue);if(c.autoProgramStatus)renderAutoProgramStatus(c.autoProgramStatus.newValue);if(c.historyLoadProgress)renderHistoryStatus(c.historyLoadProgress.newValue);if(c.commentPanelOpenStatus)renderCommentPanelOpenStatus(c.commentPanelOpenStatus.newValue);});
-(async()=>{await ensureStorageSchema();await load();})();
+$('refresh').onclick=()=>load();$('search').oninput=()=>renderUsers(groups());$('exportJson').onclick=()=>download('abema-comments.json',JSON.stringify(comments.map(c=>({...c,userTags:[...ABEMAUserTags.get(userTags,String(c.userId))]})),null,2),'application/json');$('exportCsv').onclick=()=>{const q=s=>`"${String(s??'').replaceAll('"','""')}"`;download('abema-comments.csv',['time,userId,message,pageTitle,userTags',...comments.map(c=>[new Date(commentTime(c)).toISOString(),c.userId,c.message,c.pageTitle,JSON.stringify(ABEMAUserTags.get(userTags,String(c.userId)))].map(q).join(','))].join('\n'),'text/csv');};chrome.storage.onChanged.addListener((c,a)=>{if(a!=='local')return;if(c.comments||c.mutedUsers||c.learningAutoMutedUsers||c.autoMuteLog||c.userTags)load(false);if(c.moderationSettings)load(true);if(c.autoProgramSettings)renderAutoProgramSettings(c.autoProgramSettings.newValue);if(c.autoProgramStatus)renderAutoProgramStatus(c.autoProgramStatus.newValue);if(c.historyLoadProgress)renderHistoryStatus(c.historyLoadProgress.newValue);if(c.commentPanelOpenStatus)renderCommentPanelOpenStatus(c.commentPanelOpenStatus.newValue);});
+
+let userTags = {};
+let tagEditorUser = null;
+let tagEditorOriginal = [];
+let tagEditorDirty = false;
+let tagSaveBusy = false;
+
+function tagBadges(uid) {
+  return `<div class="tag-badges">${ABEMAUserTags.get(userTags, uid).map(tag => `<span class="user-tag">${escapeHtml(tag)}</span>`).join('')}</div>`;
+}
+
+function renderTagFilter() {
+  const select = $('tagFilter');
+  const previous = select.value;
+  const names = [...new Set(Object.values(userTags).flat())].sort((a,b) => a.localeCompare(b, 'ja'));
+  // Keep an active filter even when its last user has just been untagged.
+  if (previous.startsWith('tag:') && !names.includes(previous.slice(4))) names.push(previous.slice(4));
+  const choices = [['', '全ユーザー'], ['tagged', 'タグ付きユーザー'], ['untagged', 'タグなしユーザー'], ...names.map(name => [`tag:${name}`, name])];
+  select.innerHTML = choices.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join('');
+  select.value = previous;
+}
+
+function tagFilteredGroups(gs) {
+  const filter = $('tagFilter').value;
+  const all = new Map(gs.map(g => [g.userId, g]));
+  if (filter === 'tagged' || filter.startsWith('tag:')) {
+    for (const uid of Object.keys(userTags)) {
+      if (!all.has(uid)) all.set(uid, { userId: uid, list: [], count: 0 });
+    }
+  }
+  return [...all.values()].filter(g => {
+    const tags = ABEMAUserTags.get(userTags, g.userId);
+    return !filter || (filter === 'tagged' && tags.length > 0) ||
+      (filter === 'untagged' && tags.length === 0) ||
+      (filter.startsWith('tag:') && tags.includes(filter.slice(4)));
+  }).sort((a,b) => b.count - a.count || a.userId.localeCompare(b.userId));
+}
+
+function selectUser(uid) {
+  if (tagSaveBusy) return;
+  if (selected !== uid && tagEditorDirty && !confirm('未保存のタグ変更を破棄して別のユーザーを開きますか？')) return;
+  selected = uid;
+  renderDetail(uid);
+}
+
+function syncTagEditor(uid, force = false) {
+  $('tagEditor').hidden = false;
+  if (!force && tagEditorUser === uid && tagEditorDirty) return;
+  const changedUser = tagEditorUser !== uid;
+  tagEditorUser = uid;
+  tagEditorOriginal = [...ABEMAUserTags.get(userTags, uid)];
+  $('userTagsInput').value = tagEditorOriginal.join(', ');
+  tagEditorDirty = false;
+  if (changedUser || force) setTagStatus('');
+}
+
+function setTagStatus(message, error = false) {
+  $('tagStatus').textContent = message;
+  $('tagStatus').classList.toggle('error-text', error);
+}
+
+function withUserTagsLock(task) {
+  // Chrome extension pages share an origin; serialize edits across open dashboards.
+  return navigator.locks.request('abema-comment-analyzer-user-tags', task);
+}
+
+async function saveUserTags() {
+  if (!selected || tagSaveBusy) return;
+  const uid = selected;
+  try {
+    const tags = ABEMAUserTags.parse($('userTagsInput').value);
+    const expected = [...tagEditorOriginal];
+    tagSaveBusy = true;
+    $('saveUserTags').disabled = true;
+    $('userTagsInput').disabled = true;
+    const next = await withUserTagsLock(async () => {
+      const data = await chrome.storage.local.get(['userTags', 'storageSchemaVersion']);
+      if (Number(data.storageSchemaVersion) > STORAGE_SCHEMA_VERSION) throw new Error('新しい保存形式です。拡張機能を更新してください。');
+      const current = ABEMAUserTags.normalizeMap(data.userTags);
+      if (JSON.stringify(ABEMAUserTags.get(current, uid)) !== JSON.stringify(expected)) {
+        throw new Error('別の画面または引継ぎでタグが変更されました。「保存済みに戻す」で確認してから編集してください。');
+      }
+      if (tags.length) Object.defineProperty(current, uid, { value: tags, enumerable: true, configurable: true, writable: true });
+      else delete current[uid];
+      await chrome.storage.local.set({ userTags: current });
+      return current;
+    });
+    userTags = next;
+    syncTagEditor(uid, true);
+    renderTagFilter();
+    renderUsers(groups());
+    setTagStatus(tags.length ? 'タグを保存しました。' : 'このユーザーのタグをすべて削除しました。');
+  } catch (error) {
+    setTagStatus(error.message || String(error), true);
+  } finally {
+    tagSaveBusy = false;
+    $('saveUserTags').disabled = false;
+    $('userTagsInput').disabled = false;
+  }
+}
+
+$('userTagsInput').oninput = () => { tagEditorDirty = true; setTagStatus('未保存の変更があります。'); };
+$('saveUserTags').onclick = saveUserTags;
+$('resetUserTags').onclick = async () => {
+  if (tagSaveBusy || !selected) return;
+  try {
+    const data = await chrome.storage.local.get('userTags');
+    userTags = ABEMAUserTags.normalizeMap(data.userTags);
+    syncTagEditor(selected, true);
+  } catch (error) { setTagStatus(error.message || String(error), true); }
+};
+$('clearUserTags').onclick = () => {
+  if (tagSaveBusy) return;
+  $('userTagsInput').value = '';
+  tagEditorDirty = true;
+  setTagStatus('「タグを保存」で削除を確定します。');
+};
+document.querySelectorAll('[data-tag-preset]').forEach(button => {
+  button.onclick = () => {
+    if (tagSaveBusy) return;
+    try {
+      const tags = ABEMAUserTags.parse($('userTagsInput').value);
+      $('userTagsInput').value = ABEMAUserTags.parse([...tags, button.dataset.tagPreset]).join(', ');
+      tagEditorDirty = true;
+      setTagStatus('未保存の変更があります。');
+    } catch (error) { setTagStatus(error.message || String(error), true); }
+  };
+});
+$('tagFilter').onchange = () => renderUsers(groups());
+$('openTagUser').onsubmit = event => {
+  event.preventDefault();
+  try {
+    const uid = ABEMAUserTags.userId($('tagUserId').value);
+    $('tagLookupStatus').textContent = '';
+    selectUser(uid);
+    if (selected === uid) $('tagEditor').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (error) { $('tagLookupStatus').textContent = error.message || String(error); }
+};
+
+(async()=>{await ensureStorageSchema();await load();})().catch(error=>setTransferStatus(`読み込みに失敗しました: ${error.message||error}`,true));
