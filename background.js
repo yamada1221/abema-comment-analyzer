@@ -303,17 +303,17 @@ async function tickAutoProgram({ force = false } = {}) {
   if (session.active) {
     const missingPolls = Number(session.missingPolls || 0) + 1;
     session = { ...session, missingPolls, lastDetection: state };
-    await chrome.storage.local.set({ autoProgramSession: session });
-    const limit = Math.max(1, Number(settings.missingPollsToStop || 2));
-    if (missingPolls >= limit) {
-      await finishSession(settings, session, `${settings.keyword} の終了を検出したため記録を終了しました。`, true);
-      return;
-    }
-    await setStatus('verifying-end', {
-      message: `番組名を見失いました。終了確認中です（${missingPolls}/${limit}）。`,
+    await chrome.storage.local.set({
+      autoProgramSession: session,
+      captureEnabled: true
+    });
+    await setStatus('recording-unconfirmed', {
+      message: `番組名を一時的に確認できませんが、監視時間帯内なので ${settings.keyword} の記録を継続します。`,
       tabId: tab.id,
       windowKey: schedule.windowKey,
-      detection: state
+      detection: state,
+      missingPolls,
+      startedAt: session.startedAt || session.lastMatchedAt || Date.now()
     });
     return;
   }
@@ -355,9 +355,14 @@ async function setupAlarm() {
   chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
 }
 
-chrome.runtime.onInstalled.addListener(() => {
-  setupAlarm();
-  tickAutoProgram().catch(() => {});
+chrome.runtime.onInstalled.addListener((details) => {
+  (async () => {
+    await setupAlarm();
+    if (details?.reason === 'update' && details.previousVersion === '0.7.0') {
+      await chrome.storage.local.remove('autoProgramLastCompletedWindowKey');
+    }
+    await tickAutoProgram();
+  })().catch(() => {});
 });
 
 chrome.runtime.onStartup.addListener(() => {
