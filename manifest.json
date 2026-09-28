@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "ABEMA Comment Analyzer",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "ABEMAのコメントをローカルに記録・集計し、投稿者単位で分析・自動ミュートします。",
   "permissions": [
     "storage",
     "tabs",
-    "alarms"
+    "alarms",
+    "unlimitedStorage"
   ],
   "host_permissions": [
     "https://abema.tv/*"

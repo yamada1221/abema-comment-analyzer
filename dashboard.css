@@ -30,3 +30,5 @@ header{gap:24px;flex-wrap:wrap}header>div{min-width:0}header>.actions{align-item
 .diagnostics summary{cursor:pointer;font-weight:600;line-height:1.8}.diagnostics-body{padding-top:16px}
 summary:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #80b8e0;outline-offset:3px}
 @media(max-width:600px){header,main{padding:12px}.summary{gap:8px}.summary div,.chartbox,.layout>div,.layout aside{padding:12px}h1{font-size:21px}.actions{gap:6px}.actions>button{flex:0 1 auto}.tag-lookup .actions>input{flex-basis:180px}.titleRow>#search{width:100%}.tag-toolbar select{min-width:0;width:100%}}
+
+.mute-log-item{padding:10px 0;border-top:1px solid #333;overflow-wrap:anywhere}.mute-log-item .actions{gap:8px}#revokeMuteStatus{color:#b4d9f3;line-height:1.6}

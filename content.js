@@ -1,7 +1,7 @@
 (() => {
   const SOURCE = 'abema-comment-analyzer';
-  const RETENTION_MS = 24 * 60 * 60 * 1000;
-  const MAX_COMMENTS = 25000;
+  const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+  const MAX_COMMENTS = 100000;
   const DEFAULT_MODERATION = {
     enabled: false,
     rateEnabled: true,
@@ -79,30 +79,56 @@
       if (hit) return `NGワード「${hit}」`;
     }
 
-    const t = commentTimestamp(comment);
+    // Never infer posting frequency from batch arrival/observation time.
+    const t = Number(comment.createdAtMs);
+    if (comment.timestampReliable === false || !Number.isFinite(t) ||
+        t < 946684800000 || t > Date.now() + 60000) return null;
     const maxWindowMs = Math.max(
       Number(moderation.rateWindowSec || 30),
       Number(moderation.duplicateWindowSec || 60)
     ) * 1000;
-    const list = (userActivity.get(uid) || []).filter((item) => Math.abs(t - item.t) <= maxWindowMs);
+    const previous = userActivity.get(uid) || [];
+    const latest = Math.max(t, ...previous.map(item => item.t));
+    const list = previous.filter(item => latest - item.t <= maxWindowMs);
+    const key = String(comment.id || JSON.stringify([uid, t, message]));
+    if (list.some(item => item.key === key) || latest - t > maxWindowMs) return null;
     const normalized = normalizeMessage(message);
-    list.push({ t, normalized, message });
+    list.push({ t, normalized, message, key });
     list.sort((a, b) => a.t - b.t);
     userActivity.set(uid, list.slice(-100));
 
+    // Count an actual window of W seconds, never the +/-W interval (2W).
+    // Sliding windows also handle historical comments arriving out of order.
+    function matchingWindow(windowMs, predicate) {
+      const matching = list.filter(predicate);
+      let left = 0, best = [];
+      for (let right = 0; right < matching.length; right++) {
+        while (matching[right].t - matching[left].t > windowMs) left++;
+        const window = matching.slice(left, right + 1);
+        if (window.some(item => item.key === key) && window.length > best.length) best = window;
+      }
+      return best;
+    }
+    function evidence(reason, window) {
+      return { reason, evidence: {
+        count: window.length,
+        firstPostedAt: window[0].t,
+        lastPostedAt: window[window.length - 1].t,
+        spanSeconds: (window[window.length - 1].t - window[0].t) / 1000
+      } };
+    }
     if (moderation.duplicateEnabled && normalized) {
       const windowMs = Math.max(1, Number(moderation.duplicateWindowSec || 60)) * 1000;
-      const count = list.filter((item) => Math.abs(t - item.t) <= windowMs && item.normalized === normalized).length;
-      if (count >= Math.max(2, Number(moderation.duplicateCount || 3))) {
-        return `同文・類似連投 ${count}回/${Math.round(windowMs / 1000)}秒`;
+      const window = matchingWindow(windowMs, item => item.normalized === normalized);
+      if (window.length >= Math.max(2, Number(moderation.duplicateCount || 3))) {
+        return evidence(`同文・類似連投 ${window.length}回/${Math.round(windowMs / 1000)}秒`, window);
       }
     }
-
     if (moderation.rateEnabled) {
       const windowMs = Math.max(1, Number(moderation.rateWindowSec || 30)) * 1000;
-      const count = list.filter((item) => Math.abs(t - item.t) <= windowMs).length;
-      if (count >= Math.max(2, Number(moderation.rateCount || 8))) {
-        return `高頻度投稿 ${count}件/${Math.round(windowMs / 1000)}秒`;
+      const window = matchingWindow(windowMs, () => true);
+      if (window.length >= Math.max(2, Number(moderation.rateCount || 8))) {
+        return evidence(`高頻度投稿 ${window.length}件/${Math.round(windowMs / 1000)}秒`, window);
       }
     }
 
@@ -114,20 +140,18 @@
     if (!uid || mutedUsersCache.has(uid) || whitelistCache.has(uid)) return;
     mutedUsersCache.add(uid);
     try {
-      const data = await chrome.storage.local.get(['mutedUsers', 'autoMuteLog']);
-      const muted = new Set((data.mutedUsers || []).map(String));
-      muted.add(uid);
-      const log = Array.isArray(data.autoMuteLog) ? data.autoMuteLog : [];
-      log.push({
+      const result = await chrome.runtime.sendMessage({ source: SOURCE, type: 'APPLY_AUTO_MUTE', entries: [{
         userId: uid,
-        reason,
+        reason: typeof reason === 'string' ? reason : reason.reason,
+        ...(typeof reason === 'object' ? { evidence: reason.evidence } : {}),
         message: String(comment.message || ''),
         commentAt: commentTimestamp(comment),
-        mutedAt: Date.now(),
         pageTitle: document.title
-      });
-      await chrome.storage.local.set({ mutedUsers: [...muted], autoMuteLog: log.slice(-500) });
+      }] });
+      if (!result?.ok) throw new Error(result?.error || '自動ミュートの保存に失敗しました');
+      if (!result.count) await loadRuntimeSettings();
     } catch (error) {
+      mutedUsersCache.delete(uid);
       if (!invalidateContext(error)) console.warn('[ABEMA Comment Analyzer] auto mute failed:', error);
     }
   }
@@ -173,33 +197,15 @@
           Number(moderation.learningCandidateThreshold || 0.25),
           Number(moderation.learningAutoMuteThreshold || 0.40)
         );
-        const muted = new Set(allMuted);
-        const whitelist = new Set((moderation.whitelistUsers || []).map(String));
-        const autoUsers = new Set(learnedAuto);
-        const log = Array.isArray(data.autoMuteLog) ? [...data.autoMuteLog] : [];
-        let changed = false;
-
-        for (const candidate of result.candidates || []) {
-          if (candidate.score < threshold || muted.has(candidate.userId) || whitelist.has(candidate.userId)) continue;
-          muted.add(candidate.userId);
-          autoUsers.add(candidate.userId);
-          changed = true;
-          log.push({
-            userId: candidate.userId,
-            reason: `学習型ミュート 類似度 ${(candidate.score * 100).toFixed(1)}%`,
-            message: (candidate.sample || []).join(' / '),
-            commentAt: Date.now(),
-            mutedAt: Date.now(),
-            pageTitle: document.title,
-            patterns: candidate.patterns || []
-          });
-        }
-
-        if (changed) {
-          mutedUsersCache = muted;
-          update.mutedUsers = [...muted];
-          update.learningAutoMutedUsers = [...autoUsers];
-          update.autoMuteLog = log.slice(-500);
+        const entries = (result.candidates || []).filter(candidate => candidate.score >= threshold).map(candidate => ({
+          userId: candidate.userId, learned: true,
+          reason: `学習型ミュート 類似度 ${(candidate.score * 100).toFixed(1)}%`,
+          message: (candidate.sample || []).join(' / '), commentAt: Date.now(),
+          pageTitle: document.title, patterns: candidate.patterns || []
+        }));
+        if (entries.length) {
+          const saved = await chrome.runtime.sendMessage({ source: SOURCE, type: 'APPLY_AUTO_MUTE', entries });
+          if (!saved?.ok) throw new Error(saved?.error || '学習型ミュートの保存に失敗しました');
         }
       }
 
