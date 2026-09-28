@@ -34,7 +34,10 @@
     const key = commentKey(comment);
     if (seen.has(key)) return false;
     seen.add(key);
-    const createdAtMs = Number(comment.createdAtMs || Date.now());
+    const suppliedTime = Number(comment.createdAtMs);
+    const timestampReliable = Number.isFinite(suppliedTime) && suppliedTime >= 946684800000 && suppliedTime <= Date.now() + 60000;
+    // Observation time is useful for display, but is not evidence of posting frequency.
+    const createdAtMs = timestampReliable ? suppliedTime : Date.now();
     if (Number.isFinite(createdAtMs)) oldestSeenAt = Math.min(oldestSeenAt, createdAtMs);
     if (seen.size > 30000) {
       const recent = Array.from(seen).slice(-15000);
@@ -50,6 +53,7 @@
         userId: String(comment.userId),
         message: comment.message,
         createdAtMs,
+        timestampReliable,
         observedAt: Date.now(),
         isOwner: Boolean(comment.isOwner)
       }

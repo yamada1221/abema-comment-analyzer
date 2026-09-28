@@ -1,4 +1,4 @@
-importScripts('learning-model.js');
+importScripts('learning-model.js', 'moderation-store.js');
 const SOURCE = 'abema-comment-analyzer';
 const ALARM_NAME = 'auto-program-watch';
 const DEFAULT_AUTO_PROGRAM = {
@@ -383,6 +383,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || message.source !== SOURCE) return;
+  if (message.type === 'REVOKE_AUTO_MUTE' || message.type === 'APPLY_AUTO_MUTE') {
+    ABEMAModerationStore.apply(message).then(sendResponse)
+      .catch(error => sendResponse({ ok: false, error: String(error.message || error) }));
+    return true;
+  }
+
 
   if (message.type === 'AUTO_PROGRAM_CHECK_NOW') {
     inspectExistingAbema(String(message.keyword || DEFAULT_AUTO_PROGRAM.keyword))
