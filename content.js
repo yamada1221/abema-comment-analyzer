@@ -170,14 +170,15 @@
     learningRunning = true;
     lastLearningRun = Date.now();
     try {
-      const data = await chrome.storage.local.get(['comments', 'mutedUsers', 'autoMuteLog', 'learningAutoMutedUsers', 'learningMemory']);
+      const data = await chrome.storage.local.get(['comments', 'mutedUsers', 'autoMuteLog', 'learningAutoMutedUsers', 'learningMemory', 'learningSelectedSamples']);
       const allMuted = (data.mutedUsers || []).map(String);
       const learnedAuto = new Set((data.learningAutoMutedUsers || []).map(String));
       const result = ABEMACommentLearning.analyze(
         Array.isArray(data.comments) ? data.comments : [],
         allMuted,
         moderation.whitelistUsers || [],
-        { ...moderation, learningMemory: data.learningMemory, learningTrainingExcludedUsers: [...learnedAuto] }
+        { ...moderation, learningMemory: data.learningMemory, learningSelectedSamples: data.learningSelectedSamples,
+          learningTrainingExcludedUsers: [...learnedAuto] }
       );
 
       const update = {
@@ -188,6 +189,8 @@
           normalUsers: result.normalUsers || 0,
           analyzedUsers: result.analyzedUsers || 0,
           candidateCount: result.candidates?.length || 0,
+          mode: result.mode || 'muted-users',
+          selectedSamples: result.selectedSamples || 0,
           updatedAt: Date.now()
         }
       };
@@ -201,7 +204,8 @@
           userId: candidate.userId, learned: true,
           reason: `学習型ミュート 類似度 ${(candidate.score * 100).toFixed(1)}%`,
           message: (candidate.sample || []).join(' / '), commentAt: Date.now(),
-          pageTitle: document.title, patterns: candidate.patterns || []
+          pageTitle: document.title, patterns: candidate.patterns || [],
+          ...(candidate.evidence ? { evidence: candidate.evidence, source: candidate.source } : {})
         }));
         if (entries.length) {
           const saved = await chrome.runtime.sendMessage({ source: SOURCE, type: 'APPLY_AUTO_MUTE', entries });
@@ -421,7 +425,7 @@
         userActivity.clear();
         scheduleLearningAnalysis(500);
       }
-      if (changes.learningMemory) scheduleLearningAnalysis(500);
+      if (changes.learningMemory || changes.learningSelectedSamples) scheduleLearningAnalysis(500);
       if (changes.learningRebuildRequest) scheduleLearningAnalysis(0);
     });
   }
