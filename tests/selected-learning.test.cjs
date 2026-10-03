@@ -39,6 +39,12 @@ test('one match and repeated notifications do not create a candidate',()=>{
   const data=[source,post('one','u',source.message),post('normal','u','その他の通常実況'),post('normal2','u','雨ですね')];
   assert.equal(analyze(data.concat(data[1],data[1])).candidates.length,0);
 });
+test('selected-comment similarity threshold is configurable',()=>{
+  const lower=analyze(input(),selected(),{learningSelectedMatchThreshold:0.10});
+  assert.ok(lower.candidates.some(c=>c.userId==='candidate'));
+  const strict=analyze(input(),selected(),{learningSelectedMatchThreshold:1});
+  assert.equal(strict.candidates.some(c=>c.userId==='candidate'),false);
+});
 test('the selected post itself is not counted as matching evidence',()=>{
   const data=[source,post('source2','source-user',source.message),post('source3','source-user','普通の実況')];
   assert.equal(analyze(data).candidates.length,0);
