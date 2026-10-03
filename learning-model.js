@@ -4,6 +4,7 @@
     learningMinMutedUsers: 3,
     learningMaxCommentsPerUser: 40,
     learningCandidateThreshold: 0.25,
+    learningSelectedMatchThreshold: 0.70,
     learningAutoMuteThreshold: 0.40,
     learningNormalPenalty: 0.75
   };
@@ -217,6 +218,8 @@
     const idf = buildIdf(profiles);
     const ordinary = centroid(normalIds, profiles, idf).vector;
     const penalty = Math.max(0, Math.min(1.5, Number(settings.learningNormalPenalty) || 0.75));
+    const matchThreshold = Math.max(0.10, Math.min(1,
+      Number(settings.learningSelectedMatchThreshold) || SELECTED_MATCH_THRESHOLD));
     const selectedKeys = new Set(selected.samples.map(c => c.key));
     const templates = selected.samples.map(sample => {
       const counts = new Map([...extractFeatures(sample.message)].map(f => [f, 1]));
@@ -253,7 +256,7 @@
         }
         let best = -1, score = 0;
         for (const [i, dot] of scores) if (dot > score) { best = i; score = Math.min(1, dot); }
-        if (best < 0 || score < SELECTED_MATCH_THRESHOLD) continue;
+        if (best < 0 || score < matchThreshold) continue;
         const template = templates[best];
         evidence.push({ message: String(comment.message || ''), createdAtMs: Number(comment.createdAtMs || comment.observedAt),
           sourceUserId: template.sample.userId, sourceMessage: template.sample.message, sourceCommentKey: template.sample.key, score,
