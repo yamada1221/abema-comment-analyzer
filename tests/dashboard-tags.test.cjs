@@ -44,7 +44,7 @@ async function dashboard(store) {
   const w = dom.window;
   w.chrome = {
     storage: { local: store.local, onChanged: { addListener: listener => store.listeners.push(listener) } },
-    runtime: { getManifest: () => ({ version: '0.10.0' }), sendMessage: message => w.ABEMAModerationStore.apply(message) }
+    runtime: { getManifest: () => ({ version: '0.11.0' }), sendMessage: message => w.ABEMAModerationStore.apply(message) }
   };
   Object.defineProperty(w.navigator, 'locks', { value: { request: store.lock } });
   w.HTMLCanvasElement.prototype.getContext = () => ({ clearRect() {}, fillRect() {}, fillText() {} });
@@ -52,7 +52,7 @@ async function dashboard(store) {
   w.confirm = () => true;
   for (const file of ['user-tags.js', 'learning-model.js', 'moderation-store.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
   await settle();
-  assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.10.0 / 保存形式 3');
+  assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.11.0 / 保存形式 4');
   assert.doesNotMatch(w.document.getElementById('transferStatus').textContent, /失敗/);
   const el = id => w.document.getElementById(id);
   const input = value => { el('userTagsInput').value = value; el('userTagsInput').dispatchEvent(new w.Event('input')); };
@@ -72,11 +72,92 @@ function fixture() {
   });
 }
 
+test('select and revoke one comment, retain it after history expiry, and transfer it', async () => {
+  const store=fixture(),page=await dashboard(store);
+  const {w,el}=page;
+  const initialMuted=clone(store.state.mutedUsers),initialSettings=clone(store.state.moderationSettings);
+  try {
+    w.selectUser('user-a');
+    const button=w.document.querySelector('[data-learncomment]');
+    button.focus();await button.onclick();await settle();
+    assert.equal(store.state.learningSelectedSamples.samples.length,1);
+    assert.equal(store.state.learningSelectedSamples.samples[0].message,'test A');
+    assert.deepEqual(store.state.mutedUsers,initialMuted);
+    assert.deepEqual(store.state.moderationSettings,initialSettings);
+    assert.equal(w.document.activeElement.dataset.learncomment,'0');
+    assert.equal(w.document.querySelector('[data-learncomment]').textContent,'学習指定を解除');
+    let exported;w.download=(_name,text)=>exported=JSON.parse(text);
+    await w.exportTransfer();
+    assert.equal(exported.schemaVersion,4);assert.equal(exported.data.learningSelectedSamples.samples.length,1);
+    await store.local.set({comments:[]});await settle();
+    assert.equal(store.state.learningSelectedSamples.samples.length,1);
+    assert.match(el('learningSelectedList').textContent,/test A/);
+    await w.document.querySelector('[data-selected-remove]').onclick();await settle();
+    assert.equal(store.state.learningSelectedSamples.samples.length,0);
+    await w.importTransferFile({text:async()=>JSON.stringify(exported)});await settle();
+    assert.equal(store.state.learningSelectedSamples.samples.length,1);
+    const before=JSON.stringify(store.state);
+    exported.data.learningSelectedSamples={version:1,samples:[null]};
+    await w.importTransferFile({text:async()=>JSON.stringify(exported)});
+    assert.match(el('transferStatus').textContent,/失敗/);
+    assert.equal(JSON.stringify(store.state),before);
+  } finally {page.close();}
+});
+
+test('old backups retain selected examples; concurrent tabs serialize additions and removals', async () => {
+  const store=fixture(),a=await dashboard(store),b=await dashboard(store);
+  try {
+    a.w.selectUser('user-a');b.w.selectUser('user-b');
+    await Promise.all([a.w.document.querySelector('[data-learncomment]').onclick(),b.w.document.querySelector('[data-learncomment]').onclick()]);
+    await settle();
+    assert.equal(store.state.learningSelectedSamples.samples.length,2);
+    const sample=store.state.learningSelectedSamples.samples[0];
+    await Promise.all([a.w.ABEMAModerationStore.apply({type:'SELECT_LEARNING_COMMENT',commentKey:sample.key}),b.w.ABEMAModerationStore.apply({type:'SELECT_LEARNING_COMMENT',commentKey:sample.key})]);
+    assert.equal(store.state.learningSelectedSamples.samples.length,2);
+    await a.w.importTransferFile({text:async()=>JSON.stringify({format:'abema-comment-analyzer-transfer',schemaVersion:3,data:{mutedUsers:[]}})});await settle();
+    assert.equal(store.state.learningSelectedSamples.samples.length,2);
+    await a.w.ABEMAModerationStore.apply({type:'REMOVE_LEARNING_COMMENT',commentKey:sample.key});await settle();
+    assert.equal(store.state.learningSelectedSamples.samples.length,1);
+    assert.match(b.el('learningSelectedCount').textContent,/1 \/ 200/);
+  } finally {a.close();b.close();}
+});
+
+test('selected-example recommendation displays source and matching posts without changing settings', async () => {
+  const now=Date.now()-1000;
+  const c=(id,userId,message)=>({id,userId,message,createdAtMs:now});
+  const selectedPost=c('source','source','独自の定型煽りを繰り返す投稿');
+  const store=storage({comments:[selectedPost,c('a','target',selectedPost.message),c('b','target',selectedPost.message),c('c','target','普通の実況')],mutedUsers:[],moderationSettings:{learningEnabled:true,learningMinComments:3,learningAutoMute:false}});
+  const page=await dashboard(store);
+  try {
+    page.w.selectUser('source');
+    await page.w.document.querySelector('[data-learncomment]').onclick();await settle();
+    assert.match(page.el('learningStatus').textContent,/指定したコメント 1件/);
+    assert.equal(page.w.document.querySelector('[data-learnmute]').dataset.learnmute,'target');
+    assert.match(page.el('learningCandidates').textContent,/一致した投稿 2件/);
+    assert.match(page.el('learningCandidates').textContent,/学習元 source/);
+    assert.equal(store.state.mutedUsers.length,0);
+    assert.equal(store.state.moderationSettings.learningAutoMute,false);
+    await page.w.document.querySelector('[data-selected-remove]').onclick();await settle();
+    assert.equal(page.w.document.querySelectorAll('[data-learnmute]').length,0);
+    assert.match(page.el('learningStatus').textContent,/最低 3 人必要/);
+  } finally {page.close();}
+});
+
+test('HTML-looking selected comments are escaped in detail and saved-example list', async () => {
+  const store=fixture();store.state.comments[0].message='<img src=x onerror=alert(1)>';
+  const page=await dashboard(store);
+  try {
+    page.w.selectUser('user-a');await page.w.document.querySelector('[data-learncomment]').onclick();await settle();
+    assert.equal(page.w.document.querySelectorAll('#detailComments img,#learningSelectedList img').length,0);
+    assert.match(page.el('learningSelectedList').textContent,/<img src=x onerror=alert\(1\)>/);
+  } finally {page.close();}
+});
+
 test('upgrade, edit, filter, refresh, export and expiry preserve user data', async () => {
   const store = fixture(), page = await dashboard(store);
   const { w, el, input } = page;
   try {
-    assert.equal(store.state.storageSchemaVersion, 3);
+    assert.equal(store.state.storageSchemaVersion, 4);
     w.selectUser('user-a');
     input(' 要観察、定型文,要観察');
     await w.saveUserTags();
@@ -101,7 +182,7 @@ test('upgrade, edit, filter, refresh, export and expiry preserve user data', asy
     assert.match(downloads.at(-1).text, /^time,userId,message,pageTitle,userTags/);
     await w.exportTransfer();
     const payload = JSON.parse(downloads.at(-1).text);
-    assert.equal(payload.schemaVersion, 3);
+    assert.equal(payload.schemaVersion, 4);
     assert.deepEqual(payload.data.userTags, store.state.userTags);
     await store.local.set({ comments: [] });
     await settle();

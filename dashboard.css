@@ -32,3 +32,17 @@ summary:focus-visible,button:focus-visible,input:focus-visible,select:focus-visi
 @media(max-width:600px){header,main{padding:12px}.summary{gap:8px}.summary div,.chartbox,.layout>div,.layout aside{padding:12px}h1{font-size:21px}.actions{gap:6px}.actions>button{flex:0 1 auto}.tag-lookup .actions>input{flex-basis:180px}.titleRow>#search{width:100%}.tag-toolbar select{min-width:0;width:100%}}
 
 .mute-log-item{padding:10px 0;border-top:1px solid #333;overflow-wrap:anywhere}.mute-log-item .actions{gap:8px}#revokeMuteStatus{color:#b4d9f3;line-height:1.6}
+
+.selected-learning-section{margin-top:16px;padding-top:12px;border-top:1px solid #333}
+.selected-learning-section summary,.learning-evidence summary{cursor:pointer;line-height:1.8}
+#learningSelectedCount{margin-left:8px;color:#b4d9f3;font-size:.85rem}
+#learningSelectedList{max-height:300px;overflow:auto;overflow-wrap:anywhere}
+#learningSelectedList ul,.learning-evidence ul{margin:8px 0;padding-left:22px}
+#learningSelectedList li,.learning-evidence li{padding:10px 0;border-bottom:1px solid #333}
+.learning-sample-heading,.comment-learning{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.learning-sample-heading b{overflow-wrap:anywhere;min-width:0}
+.learning-sample-heading button,.learning-comment-button{font-size:.75rem;padding:5px 8px}
+.comment-learning{margin-top:7px}.learning-comment-button.chosen{background:#244661;border-color:#5a91bd}
+.learning-selected-badge{font-size:.75rem;color:#b4d9f3}
+#learningSampleStatus{font-size:.85rem;color:#b4d9f3;overflow-wrap:anywhere}#learningSampleStatus.error-text{color:#ffb4b4}
+.learning-candidate{padding:8px 0;border-top:1px solid #333}.learning-evidence p{margin:5px 0}

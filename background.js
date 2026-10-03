@@ -383,7 +383,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || message.source !== SOURCE) return;
-  if (message.type === 'REVOKE_AUTO_MUTE' || message.type === 'APPLY_AUTO_MUTE') {
+  if (['REVOKE_AUTO_MUTE', 'APPLY_AUTO_MUTE', 'SELECT_LEARNING_COMMENT', 'REMOVE_LEARNING_COMMENT'].includes(message.type)) {
     ABEMAModerationStore.apply(message).then(sendResponse)
       .catch(error => sendResponse({ ok: false, error: String(error.message || error) }));
     return true;
