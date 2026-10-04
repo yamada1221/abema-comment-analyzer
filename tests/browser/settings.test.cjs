@@ -32,7 +32,7 @@ test('Chrome extension settings persist and clamp without changing tags or exclu
         (await chrome.storage.local.get('moderationSettings')).moderationSettings.learningSelectedMatchThreshold === value, expected);
       await page.reload();
       await page.waitForFunction(value =>
-        document.getElementById('learningSelectedMatchThreshold').value === value, String(expected * 100));
+        document.getElementById('learningSelectedMatchThreshold').value === value, String(Math.round(expected * 100)));
     }
     const state = await worker.evaluate(() => chrome.storage.local.get(['moderationSettings', 'userTags', 'mutedUsers']));
     assert.equal(state.moderationSettings.rateCount, 12);
