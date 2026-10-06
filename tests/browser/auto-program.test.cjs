@@ -122,8 +122,9 @@ for (const options of [
     try {
       await start(app);
       const tab = app.context.pages().find(page => page.url() === TARGET);
-      await waitForStorage(app.dashboard, 'commentPanelOpenStatus',
+      const opened = await waitForStorage(app.dashboard, 'commentPanelOpenStatus',
         state => state.commentPanelOpenStatus?.status === 'success');
+      assert.equal(opened.commentPanelOpenStatus.dismissedLaterDialog, true);
       await tab.locator('#notice').waitFor({ state: 'hidden' });
       await tab.getByRole('textbox', { name: 'コメントを入力' }).waitFor({ state: 'visible' });
       const clicks = await tab.evaluate(() => window.fixture);

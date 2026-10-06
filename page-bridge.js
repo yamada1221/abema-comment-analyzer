@@ -9,6 +9,7 @@
   let historyLoading = false;
   let historyCancelled = false;
   let oldestSeenAt = Infinity;
+  let commentPanelOpening = null;
 
   const isComment = (value) => value && typeof value === 'object' &&
     typeof value.message === 'string' && value.message.length > 0 &&
@@ -383,7 +384,20 @@
     }
   }
 
-  async function openCommentPanel(requestId) {
+  function openCommentPanel(requestId) {
+    // Automatic checks and the dashboard can ask while ABEMA is still rendering.
+    // Share the in-flight operation so a second click cannot toggle the panel shut.
+    if (commentPanelOpening) return commentPanelOpening;
+    commentPanelOpening = runOpenCommentPanel(requestId)
+      .catch(error => emitCommentPanelStatus({
+        status: 'error', requestId,
+        message: `コメント欄の確認に失敗しました: ${String(error?.message || error)}`
+      }))
+      .finally(() => { commentPanelOpening = null; });
+    return commentPanelOpening;
+  }
+
+  async function runOpenCommentPanel(requestId) {
     emitCommentPanelStatus({
       status: 'starting',
       requestId,
@@ -445,6 +459,7 @@
         requestId,
         alreadyOpen: true,
         button: descriptor,
+        dismissedLaterDialog,
         message: 'コメント欄はすでに開いています。'
       });
       return;
