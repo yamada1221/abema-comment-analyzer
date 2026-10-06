@@ -24,6 +24,14 @@ async function extension() {
   }));
   const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker', { timeout: 15000 });
   const id = new URL(worker.url()).host;
+  await worker.evaluate(() => {
+    globalThis.autoProgramTestTrace = [];
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local') return;
+      const relevant = Object.fromEntries(Object.entries(changes).filter(([key]) => key.startsWith('autoProgram') || key === 'captureEnabled'));
+      if (Object.keys(relevant).length) autoProgramTestTrace.push({ at: Date.now(), changes: relevant });
+    });
+  });
   await worker.evaluate(() => chrome.storage.local.set({ captureEnabled: false }));
   const dashboard = await context.newPage();
   await dashboard.goto(`chrome-extension://${id}/dashboard.html`);
@@ -59,7 +67,8 @@ test('concurrent Chrome extension checks open one automatic tab and stop does no
   try {
     const state = await start(app);
     assert.equal(state.autoProgramSession.ownedTab, true);
-    assert.equal(state.captureEnabled, true);
+    const trace = await app.worker.evaluate(() => globalThis.autoProgramTestTrace);
+    assert.equal(state.captureEnabled, true, JSON.stringify({ state, trace }));
     const tabs = await app.worker.evaluate(() => chrome.tabs.query({ url: 'https://abema.tv/*' }));
     assert.equal(tabs.length, 1);
     await stop(app);
