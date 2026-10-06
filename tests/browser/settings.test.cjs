@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { chromium } = require('playwright');
+const { waitForStorage } = require('./helpers.cjs');
 
 test('Chrome extension settings persist and clamp without changing tags or exclusions', async () => {
   const root = path.resolve(__dirname, '../..');
@@ -28,8 +29,8 @@ test('Chrome extension settings persist and clamp without changing tags or exclu
     for (const [input, expected] of [['55', 0.55], ['5', 0.1], ['150', 1]]) {
       await page.locator('#learningSelectedMatchThreshold').fill(input);
       await page.locator('#saveModeration').click();
-      await page.waitForFunction(async value =>
-        (await chrome.storage.local.get('moderationSettings')).moderationSettings.learningSelectedMatchThreshold === value, expected);
+      await waitForStorage(page, 'moderationSettings',
+        state => state.moderationSettings.learningSelectedMatchThreshold === expected);
       await page.reload();
       await page.waitForFunction(value =>
         document.getElementById('learningSelectedMatchThreshold').value === value, String(Math.round(expected * 100)));
