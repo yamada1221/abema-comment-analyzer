@@ -18,6 +18,12 @@
   },
   "content_scripts": [
     {
+      "matches": ["https://abema.tv/*"],
+      "js": ["network-bridge.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
       "matches": [
         "https://abema.tv/*"
       ],

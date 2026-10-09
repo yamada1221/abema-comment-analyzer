@@ -56,7 +56,10 @@
         createdAtMs,
         timestampReliable,
         observedAt: Date.now(),
-        isOwner: Boolean(comment.isOwner)
+        isOwner: Boolean(comment.isOwner),
+        contentId: comment.contentId,
+        chatId: comment.chatId,
+        captureTransport: comment.captureTransport || 'dom'
       }
     }, '*');
     return true;
@@ -608,6 +611,10 @@
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     const data = event.data;
+    if (data?.source === SOURCE && data.type === 'NETWORK_COMMENT') {
+      if (data.payload?.captureRoute === location.pathname && isComment(data.payload)) emitComment(data.payload);
+      return;
+    }
     if (!data || data.source !== SOURCE || data.direction !== 'TO_PAGE') return;
     if (data.type === 'SET_MUTED_USERS') {
       mutedUsers = new Set((data.payload || []).map(String));

@@ -370,7 +370,11 @@
     if (!contextValid || event.source !== window) return;
     const d = event.data;
     if (!d || d.source !== SOURCE) return;
-    if (d.type === 'COMMENT' && d.payload) {
+    if (d.type === 'NETWORK_STATUS' && d.payload && isContextValid()) {
+      try {
+        await chrome.storage.local.set({ networkCaptureStatus: d.payload });
+      } catch (error) { invalidateContext(error); }
+    } else if (d.type === 'COMMENT' && d.payload) {
       const comment = { ...d.payload, pageUrl: location.href, pageTitle: document.title };
       queue.push(comment);
       const reason = moderationReason(comment);
@@ -392,6 +396,7 @@
   });
 
   if (isContextValid()) {
+    window.postMessage({ source: SOURCE, type: 'NETWORK_STATUS_REQUEST' }, '*');
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (!message || message.source !== SOURCE) return;
       if (message.type === 'AUTO_PROGRAM_STATE_REQUEST') {
