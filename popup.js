@@ -8,7 +8,7 @@ async function render(){
 }
 $('open').onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL('dashboard.html')});
 $('toggle').onclick=async()=>{const d=await chrome.storage.local.get('captureEnabled');await chrome.storage.local.set({captureEnabled:d.captureEnabled===false});render();};
-$('clear').onclick=async()=>{await chrome.storage.local.set({comments:[],lastCommentAt:null});render();};
+$('clear').onclick=async()=>{await navigator.locks.request('abema-comment-history',()=>chrome.storage.local.set({comments:[],lastCommentAt:null}));render();};
 render();
 async function renderNetwork() {
   const { networkCaptureStatus: s } = await chrome.storage.local.get('networkCaptureStatus');
