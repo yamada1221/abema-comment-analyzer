@@ -215,6 +215,71 @@ test('old transfers keep tags and invalid new transfers do not partially overwri
   } finally { page.close(); }
 });
 
+test('malformed transfers never overwrite any existing data', async t => {
+  const invalid = [
+    ['comments object', { comments: {} }],
+    ['null comment', { comments: [null] }],
+    ['comment message', { comments: [{ userId: 'u', message: {} }] }],
+    ['mute list', { mutedUsers: 'u' }],
+    ['mute entry', { mutedUsers: [null] }],
+    ['automatic mute list', { learningAutoMutedUsers: {} }],
+    ['settings object', { moderationSettings: [] }],
+    ['NG words', { moderationSettings: { ngWords: 'word' } }],
+    ['whitelist', { moderationSettings: { whitelistUsers: {} } }],
+    ['enabled flag', { moderationSettings: { enabled: 'false' } }],
+    ['numeric threshold', { moderationSettings: { rateCount: {} } }],
+    ['log entry', { autoMuteLog: [null] }],
+    ['capture flag', { captureEnabled: 'false' }],
+    ['analysis window', { analysisWindowMinutes: {} }],
+    ['last capture time', { lastCommentAt: {} }],
+    ['program settings', { autoProgramSettings: [] }],
+    ['program days', { autoProgramSettings: { days: '1,2' } }],
+    ['program URL', { autoProgramSettings: { url: 'https://example.org' } }],
+    ['memory shape', { learningMemory: { version: 1, samples: {} } }],
+    ['memory entry', { learningMemory: { version: 1, samples: [null] } }]
+  ];
+  for (const [name, data] of invalid) await t.test(name, async () => {
+    const store = fixture(), page = await dashboard(store);
+    // Exercise the import entry point itself, without unrelated change listeners.
+    store.listeners.length = 0;
+    const before = clone(store.state);
+    try {
+      await page.w.importTransferFile({ text: async () => JSON.stringify({
+        format: 'abema-comment-analyzer-transfer', schemaVersion: 4,
+        data: { userTags: { imported: ['must not persist'] }, ...data }
+      }) });
+      assert.match(page.el('transferStatus').textContent, /失敗/);
+      assert.deepEqual(store.state, before);
+    } finally { page.close(); }
+  });
+});
+
+test('complete backups round-trip settings while malformed envelopes leave storage unchanged', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    await page.el('saveModeration').onclick();
+    await page.el('saveAutoProgram').onclick();
+    await store.local.set({ lastCommentAt: null, learningMemory: null,
+      learningAutoMutedUsers: [], analysisWindowMinutes: 1440 });
+    let payload;
+    page.w.download = (_name, text) => { payload = JSON.parse(text); };
+    await page.w.exportTransfer();
+    await page.w.importTransferFile({ text: async () => JSON.stringify(payload) });
+    assert.match(page.el('transferStatus').textContent, /引継ぎ完了/);
+    for (const key of ['comments', 'mutedUsers', 'moderationSettings', 'autoProgramSettings',
+      'captureEnabled', 'lastCommentAt', 'analysisWindowMinutes']) {
+      assert.deepEqual(store.state[key], payload.data[key], key);
+    }
+    const before = clone(store.state);
+    for (const patch of [{ data: [] }, { data: null }, { schemaVersion: 'broken' },
+      { schemaVersion: -1 }, { schemaVersion: 4.5 }, { schemaVersion: 5 }]) {
+      await page.w.importTransferFile({ text: async () => JSON.stringify({ ...payload, ...patch }) });
+      assert.match(page.el('transferStatus').textContent, /失敗/);
+      assert.deepEqual(store.state, before);
+    }
+  } finally { page.close(); }
+});
+
 test('two dashboards retain edits to different users and detect same-user conflicts', async () => {
   const store = fixture(), a = await dashboard(store), b = await dashboard(store);
   try {

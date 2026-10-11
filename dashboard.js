@@ -136,7 +136,103 @@ function renderLearningCandidates(settings,force=false) {
 }
 async function ensureStorageSchema(){const manifest=chrome.runtime.getManifest();const d=await chrome.storage.local.get(['storageSchemaVersion','installedExtensionVersion']);const current=Number(d.storageSchemaVersion)||0;if(current>STORAGE_SCHEMA_VERSION){setTransferStatus(`このデータは新しい保存形式 v${current} です。拡張機能を最新版へ更新してください。`,true);return;}if(current<STORAGE_SCHEMA_VERSION){await chrome.storage.local.set({storageSchemaVersion:STORAGE_SCHEMA_VERSION,lastSchemaMigrationAt:Date.now(),lastSchemaMigrationFrom:current});}if(d.installedExtensionVersion!==manifest.version){await chrome.storage.local.set({installedExtensionVersion:manifest.version,lastVersionUpgradeAt:Date.now(),previousExtensionVersion:d.installedExtensionVersion||null});}$('versionInfo').textContent=`v${manifest.version} / 保存形式 ${STORAGE_SCHEMA_VERSION}`;}
 async function exportTransfer(){try{const all=await chrome.storage.local.get(TRANSFER_KEYS);const data={};for(const key of TRANSFER_KEYS)if(Object.prototype.hasOwnProperty.call(all,key))data[key]=all[key];data.userTags=ABEMAUserTags.normalizeMap(data.userTags);data.learningSelectedSamples=ABEMACommentLearning.normalizeSelectedSamples(data.learningSelectedSamples);const manifest=chrome.runtime.getManifest();const payload={format:TRANSFER_FORMAT,schemaVersion:STORAGE_SCHEMA_VERSION,extensionVersion:manifest.version,exportedAt:new Date().toISOString(),data};const stamp=new Date().toISOString().replace(/[-:]/g,'').replace(/T/,'-').replace(/\..+$/,'');download(`abema-comment-analyzer-transfer-v${manifest.version}-${stamp}.json`,JSON.stringify(payload,null,2),'application/json');setTransferStatus(`引継ぎファイルを書き出しました。コメント ${Array.isArray(data.comments)?data.comments.length:0}件、ミュート ${(data.mutedUsers||[]).length}件、タグ付きユーザー ${Object.keys(data.userTags).length}件を含みます。`);}catch(e){setTransferStatus(`書き出しに失敗しました: ${e.message||e}`,true);}}
-async function importTransferFile(file){try{if(!file)return;const text=await file.text();const payload=JSON.parse(text);if(!payload||payload.format!==TRANSFER_FORMAT||!payload.data||typeof payload.data!=='object')throw new Error('ABEMA Comment Analyzerの引継ぎファイルではありません');const schema=Number(payload.schemaVersion)||0;if(schema>STORAGE_SCHEMA_VERSION)throw new Error(`引継ぎデータの保存形式 v${schema} はこの拡張では新しすぎます。先に最新版へ更新してください`);const restore={};for(const key of TRANSFER_KEYS)if(Object.prototype.hasOwnProperty.call(payload.data,key))restore[key]=payload.data[key];restore.storageSchemaVersion=STORAGE_SCHEMA_VERSION;restore.lastTransferImportAt=Date.now();restore.lastTransferSourceVersion=String(payload.extensionVersion||'unknown');if(Object.prototype.hasOwnProperty.call(restore,'userTags'))restore.userTags=ABEMAUserTags.normalizeMap(restore.userTags);if(Object.prototype.hasOwnProperty.call(restore,'learningSelectedSamples'))restore.learningSelectedSamples=ABEMACommentLearning.normalizeSelectedSamples(restore.learningSelectedSamples);if(Object.prototype.hasOwnProperty.call(restore,'learningMemory')){const existing=await chrome.storage.local.get(['mutedUsers','learningAutoMutedUsers','moderationSettings']);restore.learningMemory=ABEMACommentLearning.updateMemory(restore.learningMemory,[],restore.mutedUsers||existing.mutedUsers,[...(restore.learningAutoMutedUsers||existing.learningAutoMutedUsers||[]),...((restore.moderationSettings||existing.moderationSettings||{}).whitelistUsers||[])]);}await withUserTagsLock(()=>navigator.locks.request('abema-learning-memory',()=>chrome.storage.local.set(restore)));setTransferStatus(`引継ぎ完了: v${payload.extensionVersion||'?'} のデータを復元しました。コメント ${Array.isArray(restore.comments)?restore.comments.length:0}件、ミュート ${(restore.mutedUsers||[]).length}件。${Object.prototype.hasOwnProperty.call(restore,'userTags')?'タグも復元しました。':'旧形式のため現在のタグは保持しました。'}`);await load();}catch(e){setTransferStatus(`引継ぎに失敗しました: ${e.message||e}`,true);}finally{$('transferFile').value='';}}
+function validateTransferData(data) {
+  const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const id = value => (typeof value === 'string' && !!value.trim()) ||
+    (typeof value === 'number' && Number.isFinite(value));
+  const strings = value => Array.isArray(value) && value.every(x => typeof x === 'string');
+  const ids = value => Array.isArray(value) && value.every(id);
+  const time = value => Number.isFinite(value) && value >= 0 && value <= 8640000000000000;
+  const check = (valid, field) => {
+    if (!valid) throw new Error(`引継ぎデータの ${field} の形式が正しくありません`);
+  };
+  const optional = (value, key, valid, prefix) => {
+    if (Object.hasOwn(value, key)) check(valid(value[key]), `${prefix}.${key}`);
+  };
+  const comment = value => object(value) && id(value.userId) && typeof value.message === 'string' &&
+    ['createdAtMs', 'observedAt'].every(key => !Object.hasOwn(value, key) || time(value[key]));
+  check(object(data), 'data');
+  optional(data, 'comments', value => Array.isArray(value) && value.every(comment), 'data');
+  for (const key of ['mutedUsers', 'learningAutoMutedUsers']) optional(data, key, ids, 'data');
+  optional(data, 'captureEnabled', value => typeof value === 'boolean', 'data');
+  optional(data, 'analysisWindowMinutes', value => Number.isFinite(value) && value > 0, 'data');
+  optional(data, 'lastCommentAt', value => value === null || time(value), 'data');
+  optional(data, 'autoMuteLog', value => Array.isArray(value) && value.every(entry =>
+    object(entry) && id(entry.userId) && typeof entry.reason === 'string' &&
+    ['mutedAt', 'revokedAt'].every(key => !Object.hasOwn(entry, key) || time(entry[key]))), 'data');
+  if (Object.hasOwn(data, 'moderationSettings')) {
+    const settings = data.moderationSettings;
+    check(object(settings), 'moderationSettings');
+    for (const [key, fallback] of Object.entries(DEFAULT_MODERATION)) {
+      optional(settings, key, Array.isArray(fallback) ? strings :
+        typeof fallback === 'number' ? Number.isFinite : value => typeof value === typeof fallback,
+      'moderationSettings');
+    }
+  }
+  if (Object.hasOwn(data, 'autoProgramSettings')) {
+    const settings = data.autoProgramSettings;
+    check(object(settings), 'autoProgramSettings');
+    for (const [key, fallback] of Object.entries(DEFAULT_AUTO_PROGRAM)) {
+      if (key !== 'days') optional(settings, key, typeof fallback === 'number' ? Number.isFinite :
+        value => typeof value === typeof fallback, 'autoProgramSettings');
+    }
+    optional(settings, 'days', value => Array.isArray(value) &&
+      value.every(day => Number.isInteger(day) && day >= 0 && day <= 6), 'autoProgramSettings');
+    optional(settings, 'url', value => {
+      try { const url = new URL(value); return url.protocol === 'https:' && url.hostname === 'abema.tv'; }
+      catch (_) { return false; }
+    }, 'autoProgramSettings');
+    for (const key of ['startTime', 'endTime']) {
+      optional(settings, key, value => /^([01]\d|2[0-3]):[0-5]\d$/.test(value), 'autoProgramSettings');
+    }
+  }
+  optional(data, 'learningMemory', value => value === null ||
+    (object(value) && value.version === 1 && Array.isArray(value.samples) && value.samples.every(comment)), 'data');
+}
+
+async function importTransferFile(file) {
+  try {
+    if (!file) return;
+    const payload = JSON.parse(await file.text());
+    if (!payload || payload.format !== TRANSFER_FORMAT) {
+      throw new Error('ABEMA Comment Analyzerの引継ぎファイルではありません');
+    }
+    const schema = payload.schemaVersion ?? 0;
+    if (!Number.isInteger(schema) || schema < 0) throw new Error('保存形式の番号が正しくありません');
+    if (schema > STORAGE_SCHEMA_VERSION) {
+      throw new Error(`引継ぎデータの保存形式 v${schema} はこの拡張では新しすぎます。先に最新版へ更新してください`);
+    }
+    // Validate every imported field before the first storage write.
+    validateTransferData(payload.data);
+    const restore = {};
+    for (const key of TRANSFER_KEYS) {
+      if (Object.hasOwn(payload.data, key)) restore[key] = payload.data[key];
+    }
+    restore.storageSchemaVersion = STORAGE_SCHEMA_VERSION;
+    restore.lastTransferImportAt = Date.now();
+    restore.lastTransferSourceVersion = String(payload.extensionVersion || 'unknown');
+    if (Object.hasOwn(restore, 'userTags')) restore.userTags = ABEMAUserTags.normalizeMap(restore.userTags);
+    if (Object.hasOwn(restore, 'learningSelectedSamples')) {
+      restore.learningSelectedSamples = ABEMACommentLearning.normalizeSelectedSamples(restore.learningSelectedSamples);
+    }
+    await withUserTagsLock(() => navigator.locks.request('abema-learning-memory', async () => {
+      if (Object.hasOwn(restore, 'learningMemory')) {
+        const existing = await chrome.storage.local.get(['mutedUsers', 'learningAutoMutedUsers', 'moderationSettings']);
+        restore.learningMemory = ABEMACommentLearning.updateMemory(restore.learningMemory, [],
+          restore.mutedUsers || existing.mutedUsers,
+          [...(restore.learningAutoMutedUsers || existing.learningAutoMutedUsers || []),
+            ...((restore.moderationSettings || existing.moderationSettings || {}).whitelistUsers || [])]);
+      }
+      await chrome.storage.local.set(restore);
+    }));
+    setTransferStatus(`引継ぎ完了: v${payload.extensionVersion || '?'} のデータを復元しました。コメント ${restore.comments?.length || 0}件、ミュート ${restore.mutedUsers?.length || 0}件。${Object.hasOwn(restore, 'userTags') ? 'タグも復元しました。' : '旧形式のため現在のタグは保持しました。'}`);
+    await load();
+  } catch (e) {
+    setTransferStatus(`引継ぎに失敗しました: ${e.message || e}`, true);
+  } finally {
+    $('transferFile').value = '';
+  }
+}
 async function load(renderForms=true){const d=await chrome.storage.local.get(['comments','mutedUsers','learningAutoMutedUsers','analysisWindowMinutes','historyLoadProgress','commentPanelOpenStatus','moderationSettings','autoMuteLog','autoProgramSettings','autoProgramStatus','userTags','learningMemory','learningSelectedSamples']);learningMemory=d.learningMemory;learningSelectedSamples=ABEMACommentLearning.normalizeSelectedSamples(d.learningSelectedSamples);userTags=ABEMAUserTags.normalizeMap(d.userTags);storedComments=Array.isArray(d.comments)?d.comments:[];mutedUsers=(d.mutedUsers||[]).map(String);learningAutoMutedUsers=(d.learningAutoMutedUsers||[]).map(String);windowMinutes=Math.min(MAX_WINDOW_MINUTES,Math.max(1,Number(d.analysisWindowMinutes)||60));syncControlsFromMinutes(windowMinutes);renderHistoryStatus(d.historyLoadProgress);renderCommentPanelOpenStatus(d.commentPanelOpenStatus);if(renderForms){renderModerationSettings(d.moderationSettings);renderAutoProgramSettings(d.autoProgramSettings);}renderAutoProgramStatus(d.autoProgramStatus);renderAutoMuteLog(d.autoMuteLog);renderSelectedLearningSamples();renderLearningCandidates(d.moderationSettings);applyFilter();}
 function applyFilter(){const anchor=analysisAnchor(),span=windowMinutes*60000;comments=storedComments.filter(c=>{const t=commentTime(c);return t&&anchor-t>=0&&anchor-t<=span;});render();}
 function groups(){const m=new Map();for(const c of comments){const u=String(c.userId||'unknown');if(!m.has(u))m.set(u,[]);m.get(u).push(c);}return[...m].map(([userId,list])=>({userId,list,count:list.length})).sort((a,b)=>b.count-a.count);}
