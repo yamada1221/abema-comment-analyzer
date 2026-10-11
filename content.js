@@ -1,7 +1,5 @@
 (() => {
   const SOURCE = 'abema-comment-analyzer';
-  const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-  const MAX_COMMENTS = 100000;
   const DEFAULT_MODERATION = {
     enabled: false,
     rateEnabled: true,
@@ -245,23 +243,15 @@
     flushing = true;
     const batch = queue.splice(0, queue.length);
     try {
-      const data = await chrome.storage.local.get(['comments', 'captureEnabled']);
-      if (data.captureEnabled === false) return;
-      const now = Date.now();
-      const existing = Array.isArray(data.comments) ? data.comments : [];
-      const byId = new Map();
-      for (const c of existing.concat(batch)) {
-        const key = String(c.id || `${c.userId}:${c.createdAtMs || c.observedAt}:${c.message}`);
-        byId.set(key, c);
-      }
-      const merged = [...byId.values()]
-        .filter((c) => now - Number(c.observedAt || c.createdAtMs || now) <= RETENTION_MS)
-        .sort((a, b) => Number(a.createdAtMs || a.observedAt) - Number(b.createdAtMs || b.observedAt))
-        .slice(-MAX_COMMENTS);
-      await chrome.storage.local.set({ comments: merged, lastCommentAt: now });
+      const result = await chrome.runtime.sendMessage({ source: SOURCE, type: 'APPEND_CAPTURED_COMMENTS', comments: batch });
+      if (!result?.ok) throw new Error(result?.error || 'Comment save was not acknowledged');
+      if (result.skipped) return;
       if (moderation.learningEnabled && Date.now() - lastLearningRun > 12000) scheduleLearningAnalysis(3000);
     } catch (error) {
-      if (!invalidateContext(error)) console.warn('[ABEMA Comment Analyzer] flush failed:', error);
+      if (!invalidateContext(error)) {
+        queue = batch.concat(queue);
+        console.warn('[ABEMA Comment Analyzer] flush failed; will retry:', error);
+      }
     } finally {
       flushing = false;
     }

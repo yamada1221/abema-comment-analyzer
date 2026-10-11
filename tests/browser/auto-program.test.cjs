@@ -113,6 +113,31 @@ test('stopping leaves an automatic tab open after it is used for another page', 
   } finally { await app.context.close(); }
 });
 
+test('concurrent capture messages preserve every batch and popup deletion clears the merged history', { timeout: 60000 }, async () => {
+  const app = await extension();
+  try {
+    await app.worker.evaluate(() => chrome.storage.local.set({ captureEnabled: true }));
+    const second = await app.context.newPage();
+    await second.goto(app.dashboard.url());
+    const sendBatches = (page, prefix) => page.evaluate(async prefix => {
+      return Promise.all(Array.from({ length: 20 }, (_, i) => chrome.runtime.sendMessage({
+        source: 'abema-comment-analyzer', type: 'APPEND_CAPTURED_COMMENTS',
+        comments: [{ id: `${prefix}-${i}`, userId: prefix, message: `comment ${i}`, createdAtMs: Date.now() }]
+      })));
+    }, prefix);
+    const replies = await Promise.all([sendBatches(app.dashboard, 'a'), sendBatches(second, 'b')]);
+    assert.ok(replies.flat().every(reply => reply.ok));
+    const state = await app.dashboard.evaluate(() => chrome.storage.local.get('comments'));
+    assert.deepEqual(state.comments.map(c => c.id).sort(),
+      ['a', 'b'].flatMap(prefix => Array.from({ length: 20 }, (_, i) => `${prefix}-${i}`)).sort());
+    const popup = await app.context.newPage();
+    await popup.goto(app.dashboard.url().replace('dashboard.html', 'popup.html'));
+    await popup.locator('#clear').click();
+    await waitForStorage(app.dashboard, ['comments', 'lastCommentAt'],
+      data => data.comments.length === 0 && data.lastCommentAt === null);
+  } finally { await app.context.close(); }
+});
+
 for (const options of [
   { laterLabel: 'あとで', modalKind: 'semantic' },
   { laterLabel: '後で', modalKind: 'fixed' }

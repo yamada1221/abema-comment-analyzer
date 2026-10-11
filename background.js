@@ -18,6 +18,28 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Serialize session mutations within this worker. Durable session state stays in storage.
 let autoProgramQueue = Promise.resolve();
 let autoProgramRevision = 0;
+async function appendCapturedComments(batch) {
+  if (!Array.isArray(batch) || batch.some(c => !c || typeof c !== 'object' ||
+      typeof c.message !== 'string' || !c.userId)) throw new Error('Invalid comment batch');
+  // Content scripts on different tabs must not perform independent read/modify/write cycles.
+  // This extension-origin lock is also used by backup restore and history deletion.
+  return navigator.locks.request('abema-comment-history', async () => {
+    const data = await chrome.storage.local.get(['comments', 'captureEnabled']);
+    if (data.captureEnabled === false) return { ok: true, skipped: true };
+    const now = Date.now(), byId = new Map();
+    for (const c of (Array.isArray(data.comments) ? data.comments : []).concat(batch)) {
+      const key = String(c.id || `${c.userId}:${c.createdAtMs || c.observedAt}:${c.message}`);
+      byId.set(key, c);
+    }
+    const comments = [...byId.values()]
+      .filter(c => now - Number(c.observedAt || c.createdAtMs || now) <= 30 * 24 * 60 * 60 * 1000)
+      .sort((a, b) => Number(a.createdAtMs || a.observedAt) - Number(b.createdAtMs || b.observedAt))
+      .slice(-100000);
+    await chrome.storage.local.set({ comments, lastCommentAt: now });
+    return { ok: true };
+  });
+}
+
 function queueAutoProgram(operation) {
   const result = autoProgramQueue.then(operation);
   autoProgramQueue = result.catch(() => {});
@@ -462,6 +484,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || message.source !== SOURCE) return;
+  if (message.type === 'APPEND_CAPTURED_COMMENTS') {
+    appendCapturedComments(message.comments).then(sendResponse)
+      .catch(error => sendResponse({ ok: false, error: String(error.message || error) }));
+    return true;
+  }
   if (['REVOKE_AUTO_MUTE', 'APPLY_AUTO_MUTE', 'SELECT_LEARNING_COMMENT', 'REMOVE_LEARNING_COMMENT'].includes(message.type)) {
     ABEMAModerationStore.apply(message).then(sendResponse)
       .catch(error => sendResponse({ ok: false, error: String(error.message || error) }));
