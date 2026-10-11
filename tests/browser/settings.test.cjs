@@ -41,6 +41,25 @@ test('Chrome extension settings persist and clamp without changing tags or exclu
     assert.deepEqual(state.moderationSettings.whitelistUsers, ['allowed']);
     assert.deepEqual(state.userTags, { identity: ['識別用'] });
     assert.deepEqual(state.mutedUsers, ['kept']);
+    const before = await page.evaluate(() => chrome.storage.local.get(null));
+    const invalid = { format: 'abema-comment-analyzer-transfer', schemaVersion: 4,
+      data: { mutedUsers: [], userTags: {}, comments: [null] } };
+    await page.locator('#transferFile').setInputFiles({ name: 'broken.json',
+      mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(invalid)) });
+    await page.waitForFunction(() => document.getElementById('transferStatus').textContent.includes('失敗'));
+    assert.deepEqual(await page.evaluate(() => chrome.storage.local.get(null)), before);
+    const valid = { ...invalid, data: { comments: [{ userId: 'restored', message: 'restored comment',
+      createdAtMs: Date.now() }], mutedUsers: ['restored'] } };
+    await page.locator('#transferFile').setInputFiles({ name: 'backup.json',
+      mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(valid)) });
+    await page.waitForFunction(() => document.getElementById('transferStatus').textContent.includes('引継ぎ完了'));
+    await page.reload();
+    await page.waitForFunction(() => document.getElementById('total').textContent === '1');
+    const restored = await page.evaluate(() => chrome.storage.local.get(['comments', 'mutedUsers', 'userTags', 'moderationSettings']));
+    assert.deepEqual(restored.comments, valid.data.comments);
+    assert.deepEqual(restored.mutedUsers, ['restored']);
+    assert.deepEqual(restored.userTags, before.userTags);
+    assert.deepEqual(restored.moderationSettings, before.moderationSettings);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });
