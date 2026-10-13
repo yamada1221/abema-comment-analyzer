@@ -50,7 +50,7 @@ async function dashboard(store) {
   w.HTMLCanvasElement.prototype.getContext = () => ({ clearRect() {}, fillRect() {}, fillText() {} });
   w.HTMLElement.prototype.scrollIntoView = () => {};
   w.confirm = () => true;
-  for (const file of ['user-tags.js', 'learning-model.js', 'moderation-store.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
+  for (const file of ['user-tags.js', 'learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
   await settle();
   assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.11.0 / 保存形式 4');
   assert.doesNotMatch(w.document.getElementById('transferStatus').textContent, /失敗/);
@@ -235,6 +235,8 @@ test('malformed transfers never overwrite any existing data', async t => {
     ['program settings', { autoProgramSettings: [] }],
     ['program days', { autoProgramSettings: { days: '1,2' } }],
     ['program URL', { autoProgramSettings: { url: 'https://example.org' } }],
+    ['NEWS enabled flag', { autoProgramSettings: { newsEnabled: 'false' } }],
+    ['CNNj start time', { autoProgramSettings: { cnnStartTime: '25:00' } }],
     ['memory shape', { learningMemory: { version: 1, samples: {} } }],
     ['memory entry', { learningMemory: { version: 1, samples: [null] } }]
   ];
@@ -252,6 +254,41 @@ test('malformed transfers never overwrite any existing data', async t => {
       assert.deepEqual(store.state, before);
     } finally { page.close(); }
   });
+});
+
+test('old auto-start settings retain the custom program while new daily presets can be disabled and transferred', async () => {
+  const oldSettings = { enabled: false, keyword: '保存済みの番組',
+    url: 'https://abema.tv/now-on-air/abema-news', days: [1, 3], startTime: '22:00', endTime: '23:00' };
+  const store = storage({ autoProgramSettings: oldSettings });
+  const page = await dashboard(store);
+  try {
+    assert.equal(page.el('autoProgramEnabled').checked, false);
+    assert.equal(page.el('autoProgramKeyword').value, oldSettings.keyword);
+    assert.equal(page.el('autoProgramStart').value, '22:00');
+    assert.equal(page.el('autoProgramNewsEnabled').checked, true);
+    assert.equal(page.el('autoProgramNewsStart').value, '00:01');
+    assert.equal(page.el('autoProgramNewsEnd').value, '01:20');
+    assert.equal(page.el('autoProgramCnnEnabled').checked, true);
+    assert.equal(page.el('autoProgramCnnStart').value, '16:00');
+    assert.equal(page.el('autoProgramCnnEnd').value, '16:20');
+    page.w.chrome.runtime.sendMessage = async () => ({ ok: true });
+    page.el('autoProgramNewsEnabled').checked = false;
+    page.el('autoProgramCnnStart').value = '16:02';
+    await page.el('saveAutoProgram').onclick();
+    await settle();
+    assert.equal(store.state.autoProgramSettings.newsEnabled, false);
+    assert.equal(store.state.autoProgramSettings.cnnStartTime, '16:02');
+    assert.deepEqual(store.state.autoProgramSettings.days, [1, 3]);
+    assert.equal(store.state.autoProgramSettings.keyword, oldSettings.keyword);
+    let exported;
+    page.w.download = (_name, text) => { exported = JSON.parse(text); };
+    await page.w.exportTransfer();
+    assert.deepEqual(exported.data.autoProgramSettings, store.state.autoProgramSettings);
+    const saved = clone(store.state.autoProgramSettings);
+    await store.local.set({ autoProgramSettings: { ...saved, newsEnabled: true } });
+    await page.w.importTransferFile({ text: async () => JSON.stringify(exported) });
+    assert.deepEqual(store.state.autoProgramSettings, saved);
+  } finally { page.close(); }
 });
 
 test('complete backups round-trip settings while malformed envelopes leave storage unchanged', async () => {

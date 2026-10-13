@@ -1,3 +1,4 @@
+process.env.TZ = 'Asia/Tokyo';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -23,6 +24,7 @@ function harness({ capture = true, initialTabs = [], settings = {}, readState } 
     },
     ...(capture === null ? {} : { captureEnabled: capture })
   };
+  data.autoProgramSettings = { newsEnabled: false, cnnEnabled: false, ...data.autoProgramSettings };
   let now = new Date(2026, 9, 6, 0, 30).getTime();
   let nextId = 100;
   const tabs = new Map(initialTabs.map(tab => [tab.id, structuredClone(tab)]));
@@ -76,6 +78,7 @@ function harness({ capture = true, initialTabs = [], settings = {}, readState } 
       }
     }
   });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../auto-program-schedules.js'), 'utf8'), context);
   vm.runInContext(source, context, { filename: 'background.js' });
   const send = message => new Promise((resolve, reject) => {
     const listener = messages[0];
@@ -304,4 +307,115 @@ test('explicitly saving identical settings restarts a manually stopped window', 
   assert.equal(h.data.autoProgramSession.active, true);
   assert.equal(h.created.length, 2);
   assert.equal(h.tabs.size, 1);
+});
+
+test('daily NEWS and CNNj start without title matching and each stop at their own Japan-time end', async () => {
+  const oldZone = process.env.TZ;
+  process.env.TZ = 'America/Los_Angeles';
+  try {
+    const h = harness({ capture: false, settings: { primaryEnabled: false },
+      readState: state => ({ ...state, matched: false }) });
+    // Simulate upgrading an existing settings object: missing preset fields use the new defaults.
+    delete h.data.autoProgramSettings.newsEnabled;
+    delete h.data.autoProgramSettings.cnnEnabled;
+    h.setTime(new Date('2026-10-10T15:00:00Z')); // Sunday 00:00 JST
+    await h.tick(); assert.equal(h.created.length, 0);
+    h.setTime(new Date('2026-10-10T15:01:00Z'));
+    await h.tick();
+    assert.equal(h.data.autoProgramSession.active, true);
+    assert.equal(h.data.autoProgramSession.windowKey, 'news:2026-10-11');
+    assert.equal(h.data.autoProgramStatus.detection.timed, true);
+    assert.equal(h.panelRequests.length, 1);
+    h.setTime(new Date('2026-10-10T16:19:59Z'));
+    await h.tick(); assert.equal(h.data.captureEnabled, true);
+    h.setTime(new Date('2026-10-10T16:20:00Z'));
+    await h.tick(); assert.equal(h.data.captureEnabled, false); assert.equal(h.tabs.size, 0);
+    h.setTime(new Date('2026-10-11T06:59:59Z'));
+    await h.tick(); assert.equal(h.created.length, 1);
+    h.setTime(new Date('2026-10-11T07:00:00Z'));
+    await h.tick();
+    assert.equal(h.data.autoProgramSession.windowKey, 'cnn:2026-10-11');
+    assert.equal(h.data.captureEnabled, true);
+    assert.match(h.data.autoProgramStatus.message, /CNNj/);
+    h.setTime(new Date('2026-10-11T07:19:59Z'));
+    await h.tick(); assert.equal(h.data.captureEnabled, true);
+    h.setTime(new Date('2026-10-11T07:20:00Z'));
+    await h.tick(); assert.equal(h.data.captureEnabled, false); assert.equal(h.tabs.size, 0);
+    assert.equal(h.created.length, 2);
+  } finally { process.env.TZ = oldZone; }
+});
+
+test('overlapping NEWS and the existing program keep one tab until the final end', async () => {
+  const h = harness({ capture: false, settings: { newsEnabled: true } });
+  h.setTime(new Date(2026, 9, 6, 0, 0));
+  await h.tick();
+  const tabId = h.data.autoProgramSession.tabId;
+  h.setTime(new Date(2026, 9, 6, 0, 1));
+  await h.tick();
+  assert.equal(h.data.autoProgramSession.tabId, tabId);
+  assert.ok(h.data.autoProgramSession.windowKeys.includes('news:2026-10-06'));
+  h.setTime(new Date(2026, 9, 6, 1, 20));
+  await h.tick();
+  assert.equal(h.data.captureEnabled, true);
+  assert.equal(h.created.length, 1);
+  assert.equal(h.removed.length, 0);
+  h.setTime(new Date(2026, 9, 6, 2, 0));
+  await h.tick();
+  assert.equal(h.data.captureEnabled, false);
+  assert.deepEqual(h.removed, [tabId]);
+});
+
+test('manual stop blocks all overlapping windows but allows the later CNNj window', async () => {
+  const h = harness({ capture: false, settings: { newsEnabled: true, cnnEnabled: true } });
+  h.setTime(new Date(2026, 9, 6, 0, 0));
+  await h.tick();
+  // A new overlapping window starts before the next poll. Stop must include it too.
+  h.setTime(new Date(2026, 9, 6, 0, 1));
+  await h.stop(); await h.tick();
+  assert.equal(h.created.length, 1);
+  h.setTime(new Date(2026, 9, 6, 1, 20));
+  await h.tick(); assert.equal(h.data.captureEnabled, false); assert.equal(h.tabs.size, 0);
+  h.setTime(new Date(2026, 9, 6, 16, 0));
+  await h.tick();
+  assert.equal(h.created.length, 2);
+  assert.equal(h.data.autoProgramSession.windowKey, 'cnn:2026-10-06');
+});
+
+test('a late time-window response cannot start an unmatched remaining program', async () => {
+  const waiting = deferred(), response = deferred();
+  const h = harness({ capture: false, settings: { newsEnabled: true }, readState: async state => {
+    waiting.resolve(); await response.promise; return { ...state, matched: false };
+  } });
+  h.setTime(new Date(2026, 9, 6, 1, 19));
+  const tick = h.tick(); await waiting.promise;
+  h.setTime(new Date(2026, 9, 6, 1, 20));
+  response.resolve(); await tick;
+  assert.equal(h.data.captureEnabled, false);
+  assert.equal(h.panelRequests.length, 0);
+  assert.equal(h.data.autoProgramStatus.status, 'waiting-program');
+});
+
+test('disabled automation remains disabled after the new presets are added', async () => {
+  const h = harness({ settings: { enabled: false } });
+  delete h.data.autoProgramSettings.newsEnabled;
+  delete h.data.autoProgramSettings.cnnEnabled;
+  await h.tick();
+  h.setTime(new Date(2026, 9, 6, 16, 0)); await h.tick();
+  assert.equal(h.created.length, 0);
+  assert.equal(h.data.autoProgramStatus.status, 'disabled');
+});
+
+test('a fixed-time NEWS window takes priority over a different custom channel', async () => {
+  const custom = 'https://abema.tv/now-on-air/anime-live';
+  const h = harness({ capture: false, settings: { newsEnabled: true, url: custom } });
+  h.setTime(new Date(2026, 9, 6, 0, 0)); await h.tick();
+  assert.equal(h.data.autoProgramSession.targetUrl, custom);
+  h.setTime(new Date(2026, 9, 6, 0, 1)); await h.tick();
+  assert.equal(h.data.autoProgramSession.targetUrl, TARGET);
+  assert.equal(h.data.autoProgramSession.previousCaptureEnabled, false);
+  h.setTime(new Date(2026, 9, 6, 1, 20)); await h.tick();
+  assert.equal(h.data.autoProgramSession.targetUrl, custom);
+  h.setTime(new Date(2026, 9, 6, 2, 0)); await h.tick();
+  assert.equal(h.data.captureEnabled, false);
+  assert.equal(h.tabs.size, 0);
 });
