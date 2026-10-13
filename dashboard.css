@@ -46,3 +46,7 @@ summary:focus-visible,button:focus-visible,input:focus-visible,select:focus-visi
 .learning-selected-badge{font-size:.75rem;color:#b4d9f3}
 #learningSampleStatus{font-size:.85rem;color:#b4d9f3;overflow-wrap:anywhere}#learningSampleStatus.error-text{color:#ffb4b4}
 .learning-candidate{padding:8px 0;border-top:1px solid #333}.learning-evidence p{margin:5px 0}
+.auto-program-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; }
+.auto-program-presets fieldset { min-width: 0; margin: 0; padding: 12px; border: 1px solid #555; border-radius: 8px; }
+.auto-program-presets legend { padding: 0 6px; font-weight: 600; }
+.auto-program-presets p { margin: 4px 0 10px; color: #aaa; }

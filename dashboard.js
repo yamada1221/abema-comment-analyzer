@@ -4,7 +4,7 @@ let learningSelectedSamples = { version: 1, samples: [] };
 let learningSampleBusy = false;
 const MAX_WINDOW_MINUTES=30*24*60; let storedComments=[],comments=[],mutedUsers=[],learningAutoMutedUsers=[],selected=null,windowMinutes=60,historyTargetTabId=null,learningResult=null,learningLastRun=0;
 const DEFAULT_MODERATION={enabled:false,rateEnabled:true,rateCount:8,rateWindowSec:30,duplicateEnabled:true,duplicateCount:3,duplicateWindowSec:60,ngEnabled:true,ngWords:[],whitelistUsers:[],learningEnabled:false,learningMinComments:5,learningMinMutedUsers:3,learningMaxCommentsPerUser:40,learningCandidateThreshold:0.25,learningSelectedMatchThreshold:0.70,learningAutoMute:false,learningAutoMuteThreshold:0.40,learningNormalPenalty:0.75};
-const DEFAULT_AUTO_PROGRAM={enabled:false,keyword:'報道ステーション',url:'https://abema.tv/now-on-air/abema-news',days:[2,3,4,5,6],startTime:'00:00',endTime:'02:00',closeOwnedTab:true,openActive:false,missingPollsToStop:2};
+const DEFAULT_AUTO_PROGRAM=ABEMAAutoPrograms.DEFAULTS;
 const STORAGE_SCHEMA_VERSION=4;
 const TRANSFER_FORMAT='abema-comment-analyzer-transfer';
 const TRANSFER_KEYS=['comments','mutedUsers','learningAutoMutedUsers','analysisWindowMinutes','moderationSettings','autoMuteLog','captureEnabled','lastCommentAt','autoProgramSettings','userTags','learningMemory','learningSelectedSamples'];
@@ -16,8 +16,25 @@ function formatDuration(minutes){if(minutes>=1440&&minutes%1440===0)return`${min
 function currentWindowFromControls(){const value=Math.max(1,Number($('windowValue').value)||1);const unit=Number($('windowUnit').value)||1;return Math.min(MAX_WINDOW_MINUTES,Math.round(value*unit));}
 function syncControlsFromMinutes(minutes){if(minutes>=1440&&minutes%1440===0){$('windowValue').value=minutes/1440;$('windowUnit').value='1440';}else if(minutes>=60&&minutes%60===0){$('windowValue').value=minutes/60;$('windowUnit').value='60';}else{$('windowValue').value=minutes;$('windowUnit').value='1';}}
 function lines(v){return String(v||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);}
-function renderAutoProgramSettings(settings){const s={...DEFAULT_AUTO_PROGRAM,...(settings||{})};$('autoProgramEnabled').checked=!!s.enabled;$('autoProgramKeyword').value=s.keyword||'報道ステーション';$('autoProgramUrl').value=s.url||DEFAULT_AUTO_PROGRAM.url;$('autoProgramStart').value=s.startTime||'00:00';$('autoProgramEnd').value=s.endTime||'02:00';$('autoProgramCloseTab').checked=s.closeOwnedTab!==false;$('autoProgramOpenActive').checked=!!s.openActive;const days=new Set((s.days||[]).map(Number));document.querySelectorAll('.autoProgramDay').forEach(cb=>cb.checked=days.has(Number(cb.value)));}
-function renderAutoProgramStatus(status){const el=$('autoProgramStatus'),detail=$('autoProgramDetection');if(!status){el.textContent='未実行です。設定を保存するとバックグラウンド監視が有効になります。';detail.textContent='';return;}const when=status.updatedAt?new Date(status.updatedAt).toLocaleString():'';el.textContent=`${status.message||status.status||''}${when?' / '+when:''}`;const d=status.detection;if(!d){detail.textContent='';return;}const samples=(d.samples||[]).slice(0,4).map(x=>x.text).filter(Boolean);detail.textContent=`番組名判定: ${d.matched?'一致':'不一致'} / score ${d.score??0}${d.pageTitle?' / '+d.pageTitle:''}${samples.length?' / 検出候補: '+samples.join(' ｜ '):''}`;}
+function renderAutoProgramSettings(settings) {
+  const s={...DEFAULT_AUTO_PROGRAM,...(settings||{})};
+  $('autoProgramEnabled').checked=!!s.enabled;
+  $('autoProgramPrimaryEnabled').checked=!!s.primaryEnabled;
+  $('autoProgramKeyword').value=s.keyword||'報道ステーション';
+  $('autoProgramUrl').value=s.url||DEFAULT_AUTO_PROGRAM.url;
+  $('autoProgramStart').value=s.startTime||'00:00';
+  $('autoProgramEnd').value=s.endTime||'02:00';
+  $('autoProgramCloseTab').checked=s.closeOwnedTab!==false;
+  $('autoProgramOpenActive').checked=!!s.openActive;
+  for (const [prefix, key] of [['News','news'], ['Cnn','cnn']]) {
+    $(`autoProgram${prefix}Enabled`).checked=!!s[`${key}Enabled`];
+    $(`autoProgram${prefix}Start`).value=s[`${key}StartTime`];
+    $(`autoProgram${prefix}End`).value=s[`${key}EndTime`];
+  }
+  const days=new Set((s.days||[]).map(Number));
+  document.querySelectorAll('.autoProgramDay').forEach(cb=>cb.checked=days.has(Number(cb.value)));
+}
+function renderAutoProgramStatus(status){const el=$('autoProgramStatus'),detail=$('autoProgramDetection');if(!status){el.textContent='未実行です。有効にして設定を保存するとバックグラウンド監視を開始します。';detail.textContent='';return;}const when=status.updatedAt?new Date(status.updatedAt).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'}):'';el.textContent=`${status.message||status.status||''}${when?' / '+when:''}`;const d=status.detection;if(!d){detail.textContent='';return;}if(d.timed){detail.textContent='指定時刻で記録中（番組名の一致は不要です）';return;}const samples=(d.samples||[]).slice(0,4).map(x=>x.text).filter(Boolean);detail.textContent=`番組名判定: ${d.matched?'一致':'不一致'} / score ${d.score??0}${d.pageTitle?' / '+d.pageTitle:''}${samples.length?' / 検出候補: '+samples.join(' ｜ '):''}`;}
 
 function renderModerationSettings(settings){const s={...DEFAULT_MODERATION,...(settings||{})};$('modEnabled').checked=!!s.enabled;$('rateEnabled').checked=!!s.rateEnabled;$('rateCount').value=s.rateCount;$('rateWindowSec').value=s.rateWindowSec;$('duplicateEnabled').checked=!!s.duplicateEnabled;$('duplicateCount').value=s.duplicateCount;$('duplicateWindowSec').value=s.duplicateWindowSec;$('ngEnabled').checked=!!s.ngEnabled;$('ngWords').value=(s.ngWords||[]).join('\n');$('whitelistUsers').value=(s.whitelistUsers||[]).join('\n');$('learningEnabled').checked=!!s.learningEnabled;$('learningMinComments').value=s.learningMinComments;$('learningMinMutedUsers').value=s.learningMinMutedUsers;$('learningCandidateThreshold').value=Math.round(Number(s.learningCandidateThreshold||0.25)*100);$('learningSelectedMatchThreshold').value=Math.round(Number(s.learningSelectedMatchThreshold||0.70)*100);$('learningAutoMute').checked=!!s.learningAutoMute;$('learningAutoMuteThreshold').value=Math.round(Number(s.learningAutoMuteThreshold||0.40)*100);}
 let muteLogItems = [], revokeBusy = false;
@@ -182,7 +199,7 @@ function validateTransferData(data) {
       try { const url = new URL(value); return url.protocol === 'https:' && url.hostname === 'abema.tv'; }
       catch (_) { return false; }
     }, 'autoProgramSettings');
-    for (const key of ['startTime', 'endTime']) {
+    for (const key of ['startTime', 'endTime', 'newsStartTime', 'newsEndTime', 'cnnStartTime', 'cnnEndTime']) {
       optional(settings, key, value => /^([01]\d|2[0-3]):[0-5]\d$/.test(value), 'autoProgramSettings');
     }
   }
@@ -269,7 +286,31 @@ function renderHistoryStatus(p){const el=$('historyStatus');if(!p){el.textConten
 function renderCommentPanelOpenStatus(p){const el=$('commentPanelOpenStatus'),btn=$('openCommentPanelTest');if(!p){el.textContent='未テスト';btn.disabled=false;return;}const recent=Date.now()-Number(p.updatedAt||0)<15000;const busy=recent&&(p.status==='starting'||p.status==='clicking');btn.disabled=busy;const prefix=p.status==='success'?'成功: ':p.status==='error'?'失敗: ':'';el.textContent=prefix+(p.message||p.status||'');}
 function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
 async function findAbemaTab(){const tabs=await chrome.tabs.query({url:'https://abema.tv/*'});if(!tabs.length)return null;return tabs.find(t=>t.active)||tabs[0];}
-$('saveAutoProgram').onclick=async()=>{const days=[...document.querySelectorAll('.autoProgramDay:checked')].map(cb=>Number(cb.value));let url=$('autoProgramUrl').value.trim();try{const u=new URL(url);if(u.protocol!=='https:'||u.hostname!=='abema.tv')throw new Error();url=u.href;}catch(_){$('autoProgramSaved').textContent='ABEMAのURLを指定してください';return;}if(!days.length){$('autoProgramSaved').textContent='監視曜日を1つ以上選んでください';return;}const settings={enabled:$('autoProgramEnabled').checked,keyword:$('autoProgramKeyword').value.trim()||'報道ステーション',url,days,startTime:$('autoProgramStart').value||'00:00',endTime:$('autoProgramEnd').value||'02:00',closeOwnedTab:$('autoProgramCloseTab').checked,openActive:$('autoProgramOpenActive').checked,missingPollsToStop:2};try{await chrome.storage.local.set({autoProgramSettings:settings});const result=await chrome.runtime.sendMessage({source:'abema-comment-analyzer',type:'AUTO_PROGRAM_SETTINGS_SAVED'});if(!result?.ok)throw new Error(result?.error||'バックグラウンド処理に接続できません');$('autoProgramSaved').textContent='保存しました';setTimeout(()=>$('autoProgramSaved').textContent='',1800);}catch(error){$('autoProgramSaved').textContent='監視の再設定に失敗しました。拡張機能を再読み込みしてください。';}};
+$('saveAutoProgram').onclick=async()=>{
+  const days=[...document.querySelectorAll('.autoProgramDay:checked')].map(cb=>Number(cb.value));
+  let url=$('autoProgramUrl').value.trim();
+  try{const u=new URL(url);if(u.protocol!=='https:'||u.hostname!=='abema.tv')throw new Error();url=u.href;}
+  catch(_){$('autoProgramSaved').textContent='ABEMAのURLを指定してください';return;}
+  if($('autoProgramPrimaryEnabled').checked&&!days.length){$('autoProgramSaved').textContent='監視曜日を1つ以上選んでください';return;}
+  const settings={enabled:$('autoProgramEnabled').checked,primaryEnabled:$('autoProgramPrimaryEnabled').checked,
+    keyword:$('autoProgramKeyword').value.trim()||'報道ステーション',url,days,
+    startTime:$('autoProgramStart').value||'00:00',endTime:$('autoProgramEnd').value||'02:00',
+    closeOwnedTab:$('autoProgramCloseTab').checked,openActive:$('autoProgramOpenActive').checked,missingPollsToStop:2};
+  for(const [prefix,key] of [['News','news'],['Cnn','cnn']]){
+    settings[`${key}Enabled`]=$(`autoProgram${prefix}Enabled`).checked;
+    settings[`${key}StartTime`]=$(`autoProgram${prefix}Start`).value;
+    settings[`${key}EndTime`]=$(`autoProgram${prefix}End`).value;
+    if(!settings[`${key}StartTime`]||!settings[`${key}EndTime`]){
+      $('autoProgramSaved').textContent='開始・終了時刻を入力してください';return;
+    }
+  }
+  try{
+    await chrome.storage.local.set({autoProgramSettings:settings});
+    const result=await chrome.runtime.sendMessage({source:'abema-comment-analyzer',type:'AUTO_PROGRAM_SETTINGS_SAVED'});
+    if(!result?.ok)throw new Error(result?.error||'バックグラウンド処理に接続できません');
+    $('autoProgramSaved').textContent='保存しました';setTimeout(()=>$('autoProgramSaved').textContent='',1800);
+  }catch(error){$('autoProgramSaved').textContent='監視の再設定に失敗しました。拡張機能を再読み込みしてください。';}
+};
 $('inspectAutoProgram').onclick=async()=>{const keyword=$('autoProgramKeyword').value.trim()||'報道ステーション';$('autoProgramStatus').textContent='現在のABEMA画面を確認しています…';try{const r=await chrome.runtime.sendMessage({source:'abema-comment-analyzer',type:'AUTO_PROGRAM_CHECK_NOW',keyword});if(!r?.ok)$('autoProgramStatus').textContent='番組名確認に失敗しました。';}catch(e){$('autoProgramStatus').textContent='バックグラウンド処理へ接続できません。拡張機能を再読み込みしてください。';}};
 $('stopAutoProgram').onclick=async()=>{try{await chrome.runtime.sendMessage({source:'abema-comment-analyzer',type:'AUTO_PROGRAM_STOP_NOW'});}catch(e){$('autoProgramStatus').textContent='停止処理に失敗しました。';}};
 

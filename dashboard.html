@@ -4,7 +4,13 @@
 <main><div id="historyStatus" style="margin:0 0 12px;color:#aaa"></div>
 
 <section class="chartbox" style="margin-bottom:16px"><div class="titleRow"><h2>指定番組の自動起動</h2><label><input id="autoProgramEnabled" type="checkbox"> 有効</label></div>
-<p style="color:#aaa">監視時間帯になるとABEMAを自動で開き、指定した番組名を画面上で検出したときにコメント記録を開始します。開始後は番組名表示が一時的に消えても記録を継続し、監視終了時刻で終了します。</p>
+<p style="color:#aaa">時刻はすべて日本時間です。約1分ごとに確認し、ABEMAを開いてコメント欄を表示します。同じチャンネルの時間帯が重なる場合はタブを共有し、最後の枠の終了時刻まで記録します。</p>
+<div class="auto-program-presets">
+<fieldset><legend><label><input id="autoProgramNewsEnabled" type="checkbox" checked> ABEMA NEWSチャンネル</label></legend><p>毎日・時刻指定で記録</p><label>開始 <input id="autoProgramNewsStart" type="time" value="00:01"></label> <label>終了 <input id="autoProgramNewsEnd" type="time" value="01:20"></label></fieldset>
+<fieldset><legend><label><input id="autoProgramCnnEnabled" type="checkbox" checked> CNNj</label></legend><p>毎日・ABEMA NEWS内の枠を時刻指定で記録</p><label>開始 <input id="autoProgramCnnStart" type="time" value="16:00"></label> <label>終了 <input id="autoProgramCnnEnd" type="time" value="16:20"></label></fieldset>
+</div>
+<h3><label><input id="autoProgramPrimaryEnabled" type="checkbox" checked> 番組名を指定する枠</label></h3>
+<p style="color:#aaa">この枠は番組名を検出して記録を開始します。開始後は番組名表示が消えても終了時刻まで継続します。別チャンネルと重なる場合は、上の時刻指定枠を優先します。</p>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px">
 <div><label>番組名<br><input id="autoProgramKeyword" type="text" value="報道ステーション" style="width:100%"></label></div>
 <div><label>ABEMA URL<br><input id="autoProgramUrl" type="url" value="https://abema.tv/now-on-air/abema-news" style="width:100%"></label></div>
@@ -48,4 +54,4 @@
   <div class="tag-buttons"><button id="saveUserTags" type="button">タグを保存</button><button id="resetUserTags" type="button">保存済みに戻す</button><button id="clearUserTags" type="button">すべて外す</button></div>
   <p id="tagStatus" role="status" aria-live="polite"></p>
 </div><p class="muted-text">問題になった文章だけを「このコメントを学習」で指定できます。</p><p id="learningSampleStatus" role="status" aria-live="polite"></p><div id="detailComments" class="comments"></div></aside></section><details id="diagnostics" class="chartbox diagnostics"><summary>診断・コメント欄テスト</summary><div class="diagnostics-body"><div class="titleRow"><h2>コメント欄 自動オープンテスト</h2><span id="commentPanelOpenStatus" style="color:#aaa"></span></div><p style="color:#aaa">コメント欄が開かないときの動作確認に使います。ABEMAの視聴画面を開いた状態で実行し、コメント欄が自動で開くか確認します。</p><button id="openCommentPanelTest">コメント欄を自動で開くテスト</button></div></details></main>
-<script src="user-tags.js"></script><script src="learning-model.js"></script><script src="dashboard.js"></script></body></html>
+<script src="user-tags.js"></script><script src="learning-model.js"></script><script src="auto-program-schedules.js"></script><script src="dashboard.js"></script></body></html>

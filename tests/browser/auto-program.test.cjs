@@ -47,7 +47,7 @@ async function start({ context, worker, dashboard }) {
   const opened = existing ? null : context.waitForEvent('page');
   await worker.evaluate(({ url, keyword }) => chrome.storage.local.set({
     autoProgramSettings: {
-      enabled: true, url, keyword, days: [0, 1, 2, 3, 4, 5, 6],
+      enabled: true, newsEnabled: false, cnnEnabled: false, url, keyword, days: [0, 1, 2, 3, 4, 5, 6],
       startTime: '00:00', endTime: '00:00', closeOwnedTab: true, openActive: false
     }
   }), { url: TARGET, keyword: KEYWORD });
@@ -62,6 +62,49 @@ async function stop({ dashboard }) {
   const result = await dashboard.evaluate(source => chrome.runtime.sendMessage({ source, type: 'AUTO_PROGRAM_TICK_NOW' }), SOURCE);
   assert.equal(result.ok, true);
 }
+
+test('NEWS and CNNj time slots open the comment panel without a matching title', { timeout: 60000 }, async () => {
+  const app = await extension();
+  try {
+    await app.worker.evaluate(() => {
+      const NativeDate = Date;
+      globalThis.testNow = NativeDate.parse('2026-10-12T15:01:00Z');
+      globalThis.Date = class extends NativeDate {
+        constructor(...args) { super(...(args.length ? args : [globalThis.testNow])); }
+        static now() { return globalThis.testNow; }
+      };
+    });
+    let opened = app.context.waitForEvent('page');
+    // Old settings do not contain the new preset keys. Their defaults must work on upgrade.
+    await app.worker.evaluate(() => chrome.storage.local.set({
+      autoProgramSettings: { enabled: true, primaryEnabled: false }
+    }));
+    let tab = await opened;
+    await tab.goto(TARGET);
+    let state = await recording(app);
+    assert.equal(state.autoProgramSession.windowKey, 'news:2026-10-13');
+    await tab.getByRole('textbox', { name: 'コメントを入力' }).waitFor({ state: 'visible' });
+    const status = await app.worker.evaluate(() => chrome.storage.local.get('autoProgramStatus'));
+    assert.equal(status.autoProgramStatus.detection.matched, false);
+    assert.equal(status.autoProgramStatus.detection.timed, true);
+    await app.worker.evaluate(() => { globalThis.testNow = Date.parse('2026-10-12T16:20:00Z'); });
+    await app.dashboard.evaluate(source => chrome.runtime.sendMessage({ source, type: 'AUTO_PROGRAM_TICK_NOW' }), SOURCE);
+    await waitForStorage(app.dashboard, ['autoProgramSession', 'captureEnabled'],
+      data => data.autoProgramSession === null && data.captureEnabled === false);
+    await app.worker.evaluate(() => { globalThis.testNow = Date.parse('2026-10-13T07:00:00Z'); });
+    opened = app.context.waitForEvent('page');
+    const tick = app.dashboard.evaluate(source => chrome.runtime.sendMessage({ source, type: 'AUTO_PROGRAM_TICK_NOW' }), SOURCE);
+    tab = await opened; await tab.goto(TARGET); await tick;
+    state = await recording(app);
+    assert.equal(state.autoProgramSession.windowKey, 'cnn:2026-10-13');
+    await tab.getByRole('textbox', { name: 'コメントを入力' }).waitFor({ state: 'visible' });
+    await app.worker.evaluate(() => { globalThis.testNow = Date.parse('2026-10-13T07:20:00Z'); });
+    await app.dashboard.evaluate(source => chrome.runtime.sendMessage({ source, type: 'AUTO_PROGRAM_TICK_NOW' }), SOURCE);
+    await waitForStorage(app.dashboard, ['autoProgramSession', 'captureEnabled'],
+      data => data.autoProgramSession === null && data.captureEnabled === false);
+    assert.equal((await app.worker.evaluate(() => chrome.tabs.query({ url: 'https://abema.tv/*' }))).length, 0);
+  } finally { await app.context.close(); }
+});
 
 test('concurrent Chrome extension checks open one automatic tab and stop does not reopen it', { timeout: 60000 }, async () => {
   const app = await extension();

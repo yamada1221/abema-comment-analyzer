@@ -1,17 +1,7 @@
-importScripts('learning-model.js', 'moderation-store.js');
+importScripts('learning-model.js', 'moderation-store.js', 'auto-program-schedules.js');
 const SOURCE = 'abema-comment-analyzer';
 const ALARM_NAME = 'auto-program-watch';
-const DEFAULT_AUTO_PROGRAM = {
-  enabled: false,
-  keyword: '報道ステーション',
-  url: 'https://abema.tv/now-on-air/abema-news',
-  days: [2, 3, 4, 5, 6],
-  startTime: '00:00',
-  endTime: '02:00',
-  closeOwnedTab: true,
-  openActive: false,
-  missingPollsToStop: 2
-};
+const DEFAULT_AUTO_PROGRAM = ABEMAAutoPrograms.DEFAULTS;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -58,7 +48,7 @@ function applyAutoProgramSettings() {
   const revision = ++autoProgramRevision;
   return queueAutoProgram(async () => {
     if (revision !== autoProgramRevision) return;
-    await chrome.storage.local.remove('autoProgramLastCompletedWindowKey');
+    await chrome.storage.local.remove(['autoProgramLastCompletedWindowKey', 'autoProgramCompletedWindowKeys']);
     if (revision === autoProgramRevision) return runAutoProgramTick({}, revision);
   });
 }
@@ -70,60 +60,26 @@ function stopAutoProgram() {
     const settings = await getSettings();
     const data = await chrome.storage.local.get('autoProgramSession');
     if (data.autoProgramSession) {
-      await finishSession(settings, data.autoProgramSession, '手動で自動記録を停止しました。', true);
+      const session = data.autoProgramSession;
+      session.windowKeys = [...new Set([...sessionWindowKeys(session),
+        ...ABEMAAutoPrograms.windows(new Date(), settings).map(program => program.windowKey)])];
+      await finishSession(settings, session, '手動で自動記録を停止しました。', true);
     } else {
-      const schedule = scheduleState(new Date(), settings);
-      if (schedule.inWindow) {
-        await chrome.storage.local.set({ autoProgramLastCompletedWindowKey: schedule.windowKey });
-      }
+      await completeWindows(ABEMAAutoPrograms.windows(new Date(), settings).map(program => program.windowKey));
       await setStatus('stopped', { message: '実行中の自動記録はありません。' });
     }
   });
 }
 
-function minutesOfDay(value) {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || ''));
-  if (!match) return 0;
-  return Math.max(0, Math.min(1439, Number(match[1]) * 60 + Number(match[2])));
+function sessionWindowKeys(session) {
+  return session?.windowKeys || (session?.windowKey ? [session.windowKey] : []);
 }
 
-function dateKey(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function previousDate(date) {
-  const d = new Date(date);
-  d.setDate(d.getDate() - 1);
-  return d;
-}
-
-function scheduleState(now, settings) {
-  const days = new Set((settings.days || []).map(Number));
-  const start = minutesOfDay(settings.startTime);
-  const end = minutesOfDay(settings.endTime);
-  const minute = now.getHours() * 60 + now.getMinutes();
-
-  if (start === end) {
-    return { inWindow: days.has(now.getDay()), windowKey: dateKey(now) };
-  }
-  if (start < end) {
-    return {
-      inWindow: days.has(now.getDay()) && minute >= start && minute < end,
-      windowKey: dateKey(now)
-    };
-  }
-
-  if (minute >= start && days.has(now.getDay())) {
-    return { inWindow: true, windowKey: dateKey(now) };
-  }
-  const prev = previousDate(now);
-  if (minute < end && days.has(prev.getDay())) {
-    return { inWindow: true, windowKey: dateKey(prev) };
-  }
-  return { inWindow: false, windowKey: minute < end ? dateKey(prev) : dateKey(now) };
+async function completeWindows(keys) {
+  if (!keys.length) return;
+  const data = await chrome.storage.local.get('autoProgramCompletedWindowKeys');
+  const completed = [...new Set([...(data.autoProgramCompletedWindowKeys || []), ...keys])].slice(-60);
+  await chrome.storage.local.set({ autoProgramCompletedWindowKeys: completed });
 }
 
 async function getSettings() {
@@ -267,7 +223,7 @@ async function finishSession(settings, session, reason, completed = true) {
   if (!session) return;
   await restoreCapture(session);
 
-  if (session.ownedTab && settings.closeOwnedTab) {
+  if (session.ownedTab && (session.closeOwnedTab ?? settings.closeOwnedTab)) {
     const tab = await getTab(session.tabId);
     const targetUrl = session.targetUrl || session.lastDetection?.url || settings.url;
     if (tab && urlMatchesTarget(tab.pendingUrl || tab.url, targetUrl)) {
@@ -286,51 +242,68 @@ async function finishSession(settings, session, reason, completed = true) {
       windowKey: session.windowKey
     }
   };
-  if (completed) update.autoProgramLastCompletedWindowKey = session.windowKey;
+  if (completed) {
+    await completeWindows(sessionWindowKeys(session));
+    update.autoProgramLastCompletedWindowKey = session.windowKey;
+  }
   await chrome.storage.local.set(update);
 }
 
 async function runAutoProgramTick({ force = false } = {}, revision) {
-  const settings = await getSettings();
-  const now = new Date();
-  const schedule = scheduleState(now, settings);
-  const data = await chrome.storage.local.get(['autoProgramSession', 'autoProgramLastCompletedWindowKey']);
+  const config = await getSettings();
+  const data = await chrome.storage.local.get(['autoProgramSession', 'autoProgramLastCompletedWindowKey', 'autoProgramCompletedWindowKeys']);
   let session = data.autoProgramSession || null;
   if (revision !== autoProgramRevision) return;
 
-  if (!settings.enabled && !force) {
-    if (session) await finishSession(settings, session, '自動起動を停止しました。', false);
+  if (!config.enabled && !force) {
+    if (session) await finishSession(config, session, '自動起動を停止しました。', false);
     else await setStatus('disabled', { message: '自動起動はOFFです。' });
     return;
   }
 
-  if (!schedule.inWindow && !force) {
-    if (session) await finishSession(settings, session, '監視時間帯を終了しました。', true);
+  const windows = ABEMAAutoPrograms.windows(new Date(), config, force);
+  if (!windows.length) {
+    if (session) await finishSession(config, session, '監視時間帯を終了しました。', true);
     else await setStatus('idle', { message: '次の監視時間帯を待っています。' });
     return;
   }
 
-  const sessionUrl = session?.targetUrl || session?.lastDetection?.url;
-  const sessionKeyword = session?.keyword || session?.lastDetection?.keyword;
-  if (session && (session.windowKey !== schedule.windowKey
-      || (sessionUrl && !urlMatchesTarget(sessionUrl, settings.url))
-      || (sessionKeyword && sessionKeyword !== settings.keyword))) {
-    await finishSession(settings, session, '監視枠または対象番組が変わったため記録を切り替えます。', false);
-    session = null;
-  }
-
-  if (!force && data.autoProgramLastCompletedWindowKey === schedule.windowKey && !session) {
+  const completed = new Set([...(data.autoProgramCompletedWindowKeys || []), data.autoProgramLastCompletedWindowKey]);
+  const pending = windows.filter(program => force || !completed.has(program.windowKey));
+  if (!pending.length) {
+    if (session) await finishSession(config, session, 'この時間帯の自動記録を終了しました。', true);
     await setStatus('completed', {
       message: 'この時間帯の自動記録は終了済みです。',
-      windowKey: schedule.windowKey
+      windowKey: windows[0].windowKey
     });
     return;
   }
 
+  // Overlapping windows for one channel share its tab and original capture preference.
+  const target = pending.find(program => program.timed) ||
+    pending.find(program => urlMatchesTarget(program.url, session?.targetUrl)) || pending[0];
+  const group = pending.filter(program => urlMatchesTarget(program.url, target.url));
+  const keys = group.map(program => program.windowKey);
+  const primary = group.find(program => !program.timed);
+  const settings = { ...target, keyword: primary?.keyword || target.label,
+    label: group.map(program => program.label).join(' / '), timed: group.some(program => program.timed) };
+  const settingsKey = JSON.stringify(config);
+  const sessionUrl = session?.targetUrl || session?.lastDetection?.url;
+  const sessionKeyword = session?.keyword || session?.lastDetection?.keyword;
+  const changed = session?.settingsKey ? session.settingsKey !== settingsKey :
+    sessionKeyword && sessionKeyword !== settings.keyword;
+  if (session && (!sessionWindowKeys(session).some(key => keys.includes(key))
+      || (sessionUrl && !urlMatchesTarget(sessionUrl, settings.url)) || changed)) {
+    await finishSession(config, session, '監視枠または対象番組が変わったため記録を切り替えます。', false);
+    session = null;
+  }
+  const schedule = { windowKey: session?.windowKey || target.windowKey };
   if (revision !== autoProgramRevision) return;
 
   const ensured = await ensureSession(settings, schedule.windowKey);
-  session = ensured.session;
+  session = { ...ensured.session, settingsKey, closeOwnedTab: settings.closeOwnedTab,
+    windowKeys: [...new Set([...sessionWindowKeys(ensured.session), ...keys])] };
+  await chrome.storage.local.set({ autoProgramSession: session });
   const tab = ensured.tab;
 
   let state;
@@ -347,11 +320,14 @@ async function runAutoProgramTick({ force = false } = {}, revision) {
   }
 
   if (revision !== autoProgramRevision) return;
-  const currentSchedule = scheduleState(new Date(), settings);
-  if (!force && (!currentSchedule.inWindow || currentSchedule.windowKey !== session.windowKey)) {
+  const currentWindows = ABEMAAutoPrograms.windows(new Date(), config, force);
+  const currentGroup = currentWindows.filter(program => keys.includes(program.windowKey));
+  if (!currentGroup.length) {
     await finishSession(settings, session, '監視時間帯を終了しました。', true);
     return;
   }
+  settings.timed = currentGroup.some(program => program.timed);
+  settings.label = currentGroup.map(program => program.label).join(' / ');
   const currentTab = await getTab(tab.id);
   if (!state || !urlMatchesTarget(state.url, settings.url) || !currentTab
       || !urlMatchesTarget(currentTab.pendingUrl || currentTab.url, settings.url)) {
@@ -364,7 +340,7 @@ async function runAutoProgramTick({ force = false } = {}, revision) {
   }
   if (revision !== autoProgramRevision) return;
 
-  if (state.matched) {
+  if (settings.timed || state.matched) {
     const wasActive = !!session.active;
     session = {
       ...session,
@@ -388,11 +364,12 @@ async function runAutoProgramTick({ force = false } = {}, revision) {
 
     await setStatus('recording', {
       message: wasActive
-        ? `${settings.keyword} を記録中です。`
-        : `${settings.keyword} を検出しました。コメント記録を開始しました。`,
+        ? `${settings.label} を記録中です。`
+        : settings.timed ? `${settings.label} の指定時刻になりました。コメント記録を開始しました。`
+          : `${settings.label} を検出しました。コメント記録を開始しました。`,
       tabId: tab.id,
       windowKey: schedule.windowKey,
-      detection: state,
+      detection: settings.timed ? { ...state, timed: true } : state,
       startedAt: session.startedAt || Date.now()
     });
     if (!session.startedAt) {
