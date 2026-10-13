@@ -266,6 +266,31 @@ test('navigating away preserves that tab and reconnects without redirecting it',
   assert.equal(h.tabs.size, 1);
 });
 
+test('reconnecting during active recording opens comments even when the title is temporarily missing', async () => {
+  let matched = true;
+  const h = harness({ capture: false, readState: state => ({ ...state, matched }) });
+  await h.tick();
+  const originalTab = h.data.autoProgramSession.tabId;
+  h.tabs.delete(originalTab);
+  matched = false;
+  await h.tick();
+  const replacementTab = h.data.autoProgramSession.tabId;
+  assert.notEqual(replacementTab, originalTab);
+  assert.equal(h.data.autoProgramSession.active, true);
+  assert.equal(h.data.captureEnabled, true);
+  assert.ok(h.panelRequests.includes(replacementTab), 'the replacement page must receive a panel-open request');
+  await h.stop();
+  assert.equal(h.data.captureEnabled, false);
+  assert.equal(h.tabs.size, 0);
+});
+
+test('an unmatched program does not open comments before its first successful detection', async () => {
+  const h = harness({ capture: false, readState: state => ({ ...state, matched: false }) });
+  await h.tick();
+  assert.equal(h.data.captureEnabled, false);
+  assert.equal(h.panelRequests.length, 0);
+});
+
 test('overnight monitoring stays in one window across midnight', async () => {
   const h = harness({ capture: false, settings: { days: [2], startTime: '23:00', endTime: '01:00' } });
   h.setTime(new Date(2026, 9, 6, 23, 30));

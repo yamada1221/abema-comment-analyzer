@@ -156,6 +156,34 @@ test('stopping leaves an automatic tab open after it is used for another page', 
   } finally { await app.context.close(); }
 });
 
+test('a replacement tab reopens comments while the previously detected title is missing', { timeout: 60000 }, async () => {
+  const app = await extension();
+  try {
+    await start(app);
+    const original = app.context.pages().find(page => page.url() === TARGET);
+    await original.getByRole('textbox', { name: 'コメントを入力' }).waitFor({ state: 'visible' });
+    await app.context.route('https://abema.tv/**', route => route.fulfill({
+      contentType: 'text/html', body: abemaFixture({ keyword: '読み込み中' })
+    }));
+    await original.close();
+    const opened = app.context.waitForEvent('page');
+    const tick = app.dashboard.evaluate(source => chrome.runtime.sendMessage({ source, type: 'AUTO_PROGRAM_TICK_NOW' }), SOURCE);
+    const replacement = await opened;
+    await replacement.goto(TARGET);
+    await tick;
+    await replacement.getByRole('textbox', { name: 'コメントを入力' }).waitFor({ state: 'visible' });
+    const data = await app.worker.evaluate(() => chrome.storage.local.get(['autoProgramSession', 'autoProgramStatus', 'captureEnabled']));
+    assert.equal(data.autoProgramSession.active, true);
+    assert.equal(data.autoProgramStatus.detection.matched, false);
+    assert.equal(data.captureEnabled, true);
+    assert.equal((await replacement.evaluate(() => window.fixture)).laterClicks, 1);
+    await recording(app);
+    assert.equal((await replacement.evaluate(() => window.fixture)).commentClicks, 1);
+    await stop(app);
+    assert.equal((await app.worker.evaluate(() => chrome.tabs.query({ url: 'https://abema.tv/*' }))).length, 0);
+  } finally { await app.context.close(); }
+});
+
 test('concurrent capture messages preserve every batch and popup deletion clears the merged history', { timeout: 60000 }, async () => {
   const app = await extension();
   try {

@@ -249,6 +249,16 @@ async function finishSession(settings, session, reason, completed = true) {
   await chrome.storage.local.set(update);
 }
 
+async function openSessionCommentPanel(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      source: SOURCE,
+      type: 'OPEN_COMMENT_PANEL_REQUEST',
+      requestId: Date.now()
+    });
+  } catch (_) {}
+}
+
 async function runAutoProgramTick({ force = false } = {}, revision) {
   const config = await getSettings();
   const data = await chrome.storage.local.get(['autoProgramSession', 'autoProgramLastCompletedWindowKey', 'autoProgramCompletedWindowKeys']);
@@ -354,13 +364,7 @@ async function runAutoProgramTick({ force = false } = {}, revision) {
       captureEnabled: true
     });
 
-    try {
-      await chrome.tabs.sendMessage(tab.id, {
-        source: SOURCE,
-        type: 'OPEN_COMMENT_PANEL_REQUEST',
-        requestId: Date.now()
-      });
-    } catch (_) {}
+    await openSessionCommentPanel(tab.id);
 
     await setStatus('recording', {
       message: wasActive
@@ -386,6 +390,9 @@ async function runAutoProgramTick({ force = false } = {}, revision) {
       autoProgramSession: session,
       captureEnabled: true
     });
+    // Reconnected or reloaded pages may have a closed panel even while capture stays active.
+    // The page bridge leaves an already-open panel open and serializes duplicate requests.
+    await openSessionCommentPanel(tab.id);
     await setStatus('recording-unconfirmed', {
       message: `番組名を一時的に確認できませんが、監視時間帯内なので ${settings.keyword} の記録を継続します。`,
       tabId: tab.id,
