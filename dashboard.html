@@ -1,9 +1,52 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ABEMA コメント分析</title><link rel="stylesheet" href="dashboard.css"></head>
 <body><header><div><h1>ABEMA コメント分析</h1><p>端末内に最大30日・10万件保存（上限を超えると古い順に削除）</p></div><div class="actions"><label>直近 <input id="windowValue" type="number" min="1" max="43200" value="60" style="width:72px"> <select id="windowUnit"><option value="1">分</option><option value="60">時間</option><option value="1440">日</option></select></label><label>基準日時（日本時間・空欄は最新）<input id="historyAnchor" type="datetime-local" aria-describedby="historyRangeStatus"></label><button id="applyWindow">適用</button><button id="showAllHistory">保存分すべて</button><span id="historyRangeStatus" role="status"></span><button id="loadHistory">過去コメントを読み込む</button><button id="cancelHistory" style="display:none">中止</button><button id="exportJson">JSON</button><button id="exportCsv">CSV</button><button id="refresh">更新</button></div></header>
-<main><div id="historyStatus" style="margin:0 0 12px;color:#aaa"></div>
+<main><nav class="section-nav"><a href="#commentExplorer">コメント検索</a><a href="#commentReplay">リプレイ</a><a href="#userAnalysis">投稿者</a><a href="#captureSettings">自動起動・設定</a></nav><p id="backgroundCaptureStatus" class="muted-text" role="status"></p><div id="historyStatus" style="margin:0 0 12px;color:#aaa"></div>
 
-<section class="chartbox" style="margin-bottom:16px"><div class="titleRow"><h2>指定番組の自動起動</h2><label><input id="autoProgramEnabled" type="checkbox"> 有効</label></div>
+<section class="summary"><div><b id="total">0</b><span>コメント</span></div><div><b id="unique">0</b><span>投稿者</span></div><div><b id="topShare">0%</b><span>上位10人の占有率</span></div><div><b id="muted">0</b><span>ミュート中</span></div></section>
+<section class="chartbox"><div class="titleRow"><h2 id="timelineTitle">コメント数推移</h2><span id="availableSpan"></span></div><canvas id="timeline" width="1200" height="220"></canvas></section>
+<section id="commentExplorer" class="chartbox">
+  <div class="titleRow"><h2>コメント検索・自動ラベル</h2><a href="#userAnalysis">投稿者の分析へ</a></div>
+  <p class="muted-text">上の分析時間内で、一致したコメントだけを表示します。全半角・大文字小文字を区別せず、入力した語句全体で部分一致します。</p>
+  <div class="explorer-controls">
+    <label class="query-field">検索語句<input id="commentQuery" type="search" placeholder="コメント本文を検索" autocomplete="off"></label>
+    <label>対象<select id="commentTarget"><option value="message">コメント本文</option><option value="user">投稿者ID</option><option value="all">本文・ID・番組名</option></select></label>
+    <label>自動ラベル<select id="autoLabelFilter"><option value="">すべてのラベル</option></select></label>
+    <label>ページ<select id="commentChannel"><option value="">すべてのページ</option></select></label>
+    <label>並び順<select id="commentOrder"><option value="newest">新しい順</option><option value="oldest">古い順</option></select></label>
+    <label class="check-label"><input id="hideMutedComments" type="checkbox">ミュート中を除く</label>
+  </div>
+  <div class="actions"><button id="clearCommentSearch" type="button">条件をクリア</button><button id="exportCommentResults" type="button">検索結果JSON</button></div>
+  <details class="label-settings"><summary>自動ラベルの設定・判定方法</summary>
+    <p class="muted-text">「絵文字のみ」「URLあり」「疑問表現（疑問符）」「同文反復（分析範囲で3件以上）」「高頻度投稿（自動ミュート設定の件数・秒数）」を付けます。ラベルにカーソルを合わせると根拠を確認できます。手動タグとは別に、現在の分析範囲から再計算します。ラベルだけでミュートは行いません。</p>
+    <label><input id="autoLabelsEnabled" type="checkbox" checked>自動ラベルを表示する</label>
+    <label for="autoLabelRules">追加ルール（1行1ラベル、キーワードのいずれかに一致）</label>
+    <textarea id="autoLabelRules" rows="3" placeholder="災害情報: 地震, 津波&#10;交通情報: 電車, 運休"></textarea>
+    <div class="actions"><button id="saveAutoLabels" type="button">ラベル設定を保存</button><span id="autoLabelStatus" role="status"></span></div>
+  </details>
+  <p id="commentStatus" role="status" aria-live="polite"></p>
+  <div id="commentResults" class="comment-results"></div>
+  <div class="actions pagination"><button id="commentPrev" type="button">前の100件</button><button id="commentNext" type="button">次の100件</button></div>
+</section>
+<section id="commentReplay" class="chartbox">
+  <div class="titleRow"><h2>保存コメントのリプレイ</h2><button id="loadReplay" type="button">現在の検索結果を読み込む</button></div>
+  <p class="muted-text">読み込んだ時点の検索結果を投稿時刻順に再生します。新着は混ざりません。本文の保存範囲が対象で、映像の再生は含みません。別タブへ移ると一時停止します。</p>
+  <div class="actions"><button id="replayPlay" type="button">再生</button><button id="replayRestart" type="button">先頭に戻す</button><button id="replayNext" type="button">次のコメントへ</button><label>速度<select id="replaySpeed"><option value="1">1倍</option><option value="2">2倍</option><option value="5">5倍</option><option value="10">10倍</option><option value="30">30倍</option><option value="60">60倍</option></select></label></div>
+  <label for="replaySeek">再生位置</label><input id="replaySeek" type="range" min="0" max="1" value="0" step="1">
+  <p id="replayStatus" role="status"></p><div id="replayComments" class="comment-results replay-comments"></div>
+</section>
+<section id="userAnalysis" class="layout"><div><div class="titleRow"><h2>投稿者ランキング</h2><input id="userSearch" aria-label="投稿者のID・タグ・本文検索" placeholder="投稿者のID・タグ・本文検索"></div><div class="tag-toolbar"><label for="tagFilter">タグで絞り込み</label><select id="tagFilter"><option value="">全ユーザー</option></select></div>
+<form id="openTagUser" class="tag-lookup"><label for="tagUserId">IDを指定してタグを編集</label><div class="actions"><input id="tagUserId" maxlength="200" placeholder="ユーザーID" required><button type="submit">開く</button></div><span id="tagLookupStatus" class="error-text" role="status"></span></form>
+<p id="userListStatus" class="muted-text"></p><div class="user-table-wrap"><table><thead><tr><th>投稿者</th><th>件数</th><th>割合</th><th>平均間隔</th><th></th></tr></thead><tbody id="usersBody"></tbody></table></div><button id="moreUsers" type="button" hidden>さらに200人表示</button></div>
+<aside><h2 id="detailTitle">投稿者を選択</h2><div id="detailMeta"></div>
+<div id="tagEditor" hidden>
+  <label for="userTagsInput">ユーザータグ</label>
+  <p class="muted-text" id="tagHelp">カンマ・読点・改行で区切って複数登録できます。1つ32文字、12個まで。コメントの保存期限後も残ります。</p>
+  <textarea id="userTagsInput" rows="2" aria-describedby="tagHelp" placeholder="例: 要観察, 定型文, グループA"></textarea>
+  <div class="tag-presets"><button type="button" data-tag-preset="要観察">要観察</button><button type="button" data-tag-preset="定型文">定型文</button><button type="button" data-tag-preset="掛け合い">掛け合い</button><button type="button" data-tag-preset="連投">連投</button></div>
+  <div class="tag-buttons"><button id="saveUserTags" type="button">タグを保存</button><button id="resetUserTags" type="button">保存済みに戻す</button><button id="clearUserTags" type="button">すべて外す</button></div>
+  <p id="tagStatus" role="status" aria-live="polite"></p>
+</div><p class="muted-text">問題になった文章だけを「このコメントを学習」で指定できます。</p><p id="learningSampleStatus" role="status" aria-live="polite"></p><div id="detailAutoLabels" class="label-badges"></div><div id="detailComments" class="comments"></div><button id="moreDetailComments" type="button" hidden>さらに500件表示</button></aside></section><section id="captureSettings" class="chartbox" style="margin-bottom:16px"><div class="titleRow"><h2>指定番組の自動起動</h2><label><input id="autoProgramEnabled" type="checkbox"> 有効</label></div>
 <p style="color:#aaa">時刻はすべて日本時間です。約1分ごとに確認し、ABEMAを開いてコメント欄を表示します。同じチャンネルの時間帯が重なる場合はタブを共有し、最後の枠の終了時刻まで記録します。</p>
 <div class="auto-program-presets">
 <fieldset><legend><label><input id="autoProgramNewsEnabled" type="checkbox" checked> ABEMA NEWSチャンネル</label></legend><p>毎日・時刻指定で記録</p><label>開始 <input id="autoProgramNewsStart" type="time" value="00:01"></label> <label>終了 <input id="autoProgramNewsEnd" type="time" value="01:20"></label></fieldset>
@@ -26,6 +69,7 @@
 <section class="chartbox" style="margin-bottom:16px"><div class="titleRow"><h2>自動ミュート</h2><label><input id="modEnabled" type="checkbox"> 有効</label></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px">
 <div><label><input id="rateEnabled" type="checkbox"> 高頻度投稿</label><div><input id="rateCount" type="number" min="2" value="8" style="width:64px"> 件 / <input id="rateWindowSec" type="number" min="1" value="30" style="width:64px"> 秒でミュート</div></div>
 <div><label><input id="duplicateEnabled" type="checkbox"> 同文・類似連投</label><div><input id="duplicateCount" type="number" min="2" value="3" style="width:64px"> 回 / <input id="duplicateWindowSec" type="number" min="1" value="60" style="width:64px"> 秒でミュート</div></div>
+<div><label><input id="emojiEnabled" type="checkbox"> 絵文字だけの投稿者</label><div><input id="emojiCount" type="number" min="1" max="100" value="3" style="width:64px"> 件以上 / <input id="emojiWindowSec" type="number" min="1" max="86400" value="120" style="width:76px"> 秒</div><p class="muted-text">判定時間内の取得済み投稿がすべて絵文字の場合にミュート。1件にすると1投稿から判定します。通常文・数字だけ・顔文字は対象外です。初期値はOFF。</p></div>
 <div><label><input id="ngEnabled" type="checkbox"> NGワード</label><textarea id="ngWords" rows="5" placeholder="1行1件。部分一致で判定" style="width:100%"></textarea></div>
 <div><label>自動判定から除外するユーザーID</label><textarea id="whitelistUsers" rows="5" placeholder="1行1ユーザーID" style="width:100%"></textarea></div>
 <div style="grid-column:1/-1;border-top:1px solid #333;padding-top:12px"><h3 style="margin:0 0 8px">学習型ミュート</h3><label><input id="learningEnabled" type="checkbox"> 指定コメント・ミュート済みユーザーの傾向から候補を検出</label><div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px"><label>候補判定に必要なコメント数 <input id="learningMinComments" type="number" min="2" value="5" style="width:64px"></label><label>学習に必要なミュートユーザー数 <input id="learningMinMutedUsers" type="number" min="1" value="3" style="width:64px"></label><label>候補しきい値 <input id="learningCandidateThreshold" type="number" min="1" max="99" value="25" style="width:64px">%</label><label>指定文との類似度 <input id="learningSelectedMatchThreshold" type="number" min="10" max="100" value="70" style="width:64px" aria-describedby="learningSelectedThresholdHelp">%</label><label><input id="learningAutoMute" type="checkbox"> 高スコアを自動ミュート</label><label>自動ミュートしきい値 <input id="learningAutoMuteThreshold" type="number" min="1" max="100" value="40" style="width:64px">%</label></div><p style="color:#aaa;margin:8px 0 0">文字2〜3gramのTF-IDFを使い、通常ユーザーにも多い表現は減点します。処理は端末内だけで行います。学習用サンプルは履歴と別に最大200人・各40件を保存します。古い学習元の重みは30日で半分になり、180日を超えたサンプルは学習対象から外れます。ミュート解除・除外した人のサンプルは削除します。</p><p id="learningSelectedThresholdHelp" style="color:#aaa;margin:6px 0 0">「指定文との類似度」は、問題コメントを個別指定した場合だけ使います。低くすると言い換えを拾いやすくなりますが、誤推薦も増えます。</p></div>
@@ -39,19 +83,6 @@
   </details>
 </div>
 <div style="margin-top:14px"><h3>学習型ミュート候補</h3><div id="learningStatus" style="color:#aaa;margin-bottom:8px"></div><div id="learningCandidates" style="max-height:300px;overflow:auto"></div></div>
-<div style="margin-top:14px"><h3>自動ミュート履歴</h3><p class="muted-text">取り消すと、そのユーザーのミュートを解除し、ミュート済みユーザーから自動保存した学習元を削除して自動判定から除外します。同じユーザーの他の自動判定も取り消し済みになります。手動でもミュートしている場合は解除されます。</p><div class="actions"><label>判定の種類 <select id="muteLogReason"><option value="">すべて</option><option value="高頻度投稿">高頻度投稿</option><option value="同文・類似連投">同文・類似連投</option><option value="NGワード">NGワード</option><option value="学習型ミュート">学習型ミュート</option></select></label><label>日付（日本時間） <input id="muteLogDate" type="date"></label><button id="selectMuteLog" type="button">表示中の未取消を選択</button><button id="revokeSelectedMutes" type="button" disabled>選択した判定を取り消す</button></div><p id="revokeMuteStatus" role="status" aria-live="polite"></p><div id="autoMuteLog" style="max-height:220px;overflow:auto"></div></div></section>
-<section class="summary"><div><b id="total">0</b><span>コメント</span></div><div><b id="unique">0</b><span>投稿者</span></div><div><b id="topShare">0%</b><span>上位10人の占有率</span></div><div><b id="muted">0</b><span>ミュート中</span></div></section>
-<section class="chartbox"><div class="titleRow"><h2 id="timelineTitle">コメント数推移</h2><span id="availableSpan"></span></div><canvas id="timeline" width="1200" height="220"></canvas></section>
-<section class="layout"><div><div class="titleRow"><h2>投稿者ランキング</h2><input id="search" aria-label="ID・コメント・タグ検索" placeholder="ID・コメント・タグ検索"></div><div class="tag-toolbar"><label for="tagFilter">タグで絞り込み</label><select id="tagFilter"><option value="">全ユーザー</option></select></div>
-<form id="openTagUser" class="tag-lookup"><label for="tagUserId">IDを指定してタグを編集</label><div class="actions"><input id="tagUserId" maxlength="200" placeholder="ユーザーID" required><button type="submit">開く</button></div><span id="tagLookupStatus" class="error-text" role="status"></span></form>
-<p id="userListStatus" class="muted-text"></p><div class="user-table-wrap"><table><thead><tr><th>投稿者</th><th>件数</th><th>割合</th><th>平均間隔</th><th></th></tr></thead><tbody id="usersBody"></tbody></table></div></div>
-<aside><h2 id="detailTitle">投稿者を選択</h2><div id="detailMeta"></div>
-<div id="tagEditor" hidden>
-  <label for="userTagsInput">ユーザータグ</label>
-  <p class="muted-text" id="tagHelp">カンマ・読点・改行で区切って複数登録できます。1つ32文字、12個まで。コメントの保存期限後も残ります。</p>
-  <textarea id="userTagsInput" rows="2" aria-describedby="tagHelp" placeholder="例: 要観察, 定型文, グループA"></textarea>
-  <div class="tag-presets"><button type="button" data-tag-preset="要観察">要観察</button><button type="button" data-tag-preset="定型文">定型文</button><button type="button" data-tag-preset="掛け合い">掛け合い</button><button type="button" data-tag-preset="連投">連投</button></div>
-  <div class="tag-buttons"><button id="saveUserTags" type="button">タグを保存</button><button id="resetUserTags" type="button">保存済みに戻す</button><button id="clearUserTags" type="button">すべて外す</button></div>
-  <p id="tagStatus" role="status" aria-live="polite"></p>
-</div><p class="muted-text">問題になった文章だけを「このコメントを学習」で指定できます。</p><p id="learningSampleStatus" role="status" aria-live="polite"></p><div id="detailComments" class="comments"></div></aside></section><details id="diagnostics" class="chartbox diagnostics"><summary>診断・コメント欄テスト</summary><div class="diagnostics-body"><div class="titleRow"><h2>コメント欄 自動オープンテスト</h2><span id="commentPanelOpenStatus" style="color:#aaa"></span></div><p style="color:#aaa">コメント欄が開かないときの動作確認に使います。ABEMAの視聴画面を開いた状態で実行し、コメント欄が自動で開くか確認します。</p><button id="openCommentPanelTest">コメント欄を自動で開くテスト</button></div></details></main>
-<script src="user-tags.js"></script><script src="learning-model.js"></script><script src="auto-program-schedules.js"></script><script src="dashboard.js"></script></body></html>
+<div style="margin-top:14px"><h3>自動ミュート履歴</h3><p class="muted-text">取り消すと、そのユーザーのミュートを解除し、ミュート済みユーザーから自動保存した学習元を削除して自動判定から除外します。同じユーザーの他の自動判定も取り消し済みになります。手動でもミュートしている場合は解除されます。</p><div class="actions"><label>判定の種類 <select id="muteLogReason"><option value="">すべて</option><option value="高頻度投稿">高頻度投稿</option><option value="同文・類似連投">同文・類似連投</option><option value="絵文字のみ">絵文字のみ</option><option value="NGワード">NGワード</option><option value="学習型ミュート">学習型ミュート</option></select></label><label>日付（日本時間） <input id="muteLogDate" type="date"></label><button id="selectMuteLog" type="button">表示中の未取消を選択</button><button id="revokeSelectedMutes" type="button" disabled>選択した判定を取り消す</button></div><p id="revokeMuteStatus" role="status" aria-live="polite"></p><div id="autoMuteLog" style="max-height:220px;overflow:auto"></div></div></section>
+<details id="diagnostics" class="chartbox diagnostics"><summary>診断・コメント欄テスト</summary><div class="diagnostics-body"><div class="titleRow"><h2>コメント欄 自動オープンテスト</h2><span id="commentPanelOpenStatus" style="color:#aaa"></span></div><p style="color:#aaa">コメント欄が開かないときの動作確認に使います。ABEMAの視聴画面を開いた状態で実行し、コメント欄が自動で開くか確認します。</p><button id="openCommentPanelTest">コメント欄を自動で開くテスト</button></div></details></main>
+<script src="user-tags.js"></script><script src="learning-model.js"></script><script src="auto-program-schedules.js"></script><script src="comment-tools.js"></script><script src="dashboard-explorer.js"></script><script src="dashboard.js"></script></body></html>

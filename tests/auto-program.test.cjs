@@ -59,7 +59,7 @@ function harness({ capture = true, initialTabs = [], settings = {}, readState } 
     navigator: { locks: { request: async (_name, operation) => operation() } },
     chrome: {
       storage: { local, onChanged: event(changed) },
-      alarms: { clear: async () => {}, create: async () => {}, onAlarm: event(alarms) },
+      alarms: { get: async () => undefined, clear: async () => {}, create: async () => {}, onAlarm: event(alarms) },
       runtime: { onInstalled: event([]), onStartup: event([]), onMessage: event(messages) },
       tabs: {
         async query() { return structuredClone([...tabs.values()].filter(tab => (tab.pendingUrl || tab.url || '').startsWith('https://abema.tv/'))); },

@@ -21,3 +21,15 @@ Chromeの拡張機能画面で本拡張を再読み込みし、ABEMAタブも再
 ## テスト
 
 `npm test`で既存のテストと通信取得テストを実行します。通信テストはfetch応答を本体側で引き続き読めること、XHR取得、ページ移動後の除外、診断情報に認証情報を含めないことを確認します。
+
+
+## v0.13.0 の保存・バックグラウンド動作
+
+新着イベントからの保存開始（通常1.5秒間隔または20件単位）、実行中の保存後に残りを処理、非表示・pagehide時の保存試行、1分間隔の `chrome.alarms` による再試行を追加しました。記録中はABEMAタブの `autoDiscardable` をfalseにし、元の値を `chrome.storage.session` に保持します。停止・ページ移動時に元の値へ戻します。既に手動で破棄・休止されたタブを自動再読み込みする機能ではありません。
+
+自動起動アラームも既存のアラームを再利用し、サービスワーカー復帰による予定時刻の先延ばしを防ぎます。Chromeのアラームは遅延し得るため、1分は厳密な保証ではありません。タイマーを止めた模擬環境でも、新着イベントと監視メッセージによる保存をテストします。
+
+- [Chrome tabs API（autoDiscardable）](https://developer.chrome.com/docs/extensions/reference/api/tabs)
+- [Chrome alarms API](https://developer.chrome.com/docs/extensions/reference/api/alarms)
+
+実放送での取得確認・完全にタブを閉じた後の収集には拡張していません。既存の実機結果の範囲は上記のとおりです。

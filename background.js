@@ -1,4 +1,4 @@
-importScripts('learning-model.js', 'moderation-store.js', 'auto-program-schedules.js');
+importScripts('learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'background-capture.js');
 const SOURCE = 'abema-comment-analyzer';
 const ALARM_NAME = 'auto-program-watch';
 const DEFAULT_AUTO_PROGRAM = ABEMAAutoPrograms.DEFAULTS;
@@ -437,8 +437,9 @@ async function inspectExistingAbema(keyword) {
 }
 
 async function setupAlarm() {
-  await chrome.alarms.clear(ALARM_NAME);
-  chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
+  if (!await chrome.alarms.get(ALARM_NAME)) {
+    await chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
+  }
 }
 
 chrome.runtime.onInstalled.addListener((details) => {

@@ -1,8 +1,10 @@
 const $ = (id) => document.getElementById(id);
 async function render(){
-  const d=await chrome.storage.local.get(['comments','captureEnabled','lastCommentAt']);
+  const d=await chrome.storage.local.get(['comments','captureEnabled','lastCommentAt','backgroundCaptureStatus']);
   const now=Date.now(); const comments=(d.comments||[]).filter(c=>now-(c.observedAt||c.createdAtMs)<=30*24*3600000);
   $('count').textContent=comments.length; $('users').textContent=new Set(comments.map(c=>c.userId)).size;
+  const b=d.backgroundCaptureStatus;
+  $('backgroundStatus').textContent=b?(b.enabled?`バックグラウンド接続 ${b.connected}/${b.tabs}タブ / 保存待ち ${b.pending}件`:'コメント記録は停止中です。'):'バックグラウンド確認待ち';
   const enabled=d.captureEnabled!==false; $('toggle').textContent=enabled?'記録を停止':'記録を開始';
   $('status').innerHTML=d.lastCommentAt?`<span class="ok">● 受信あり</span> 最終 ${new Date(d.lastCommentAt).toLocaleTimeString()}`:'<span class="warn">● まだコメント未検出</span>';
 }
@@ -45,5 +47,7 @@ async function renderNetwork() {
 }
 renderNetwork();
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.networkCaptureStatus) renderNetwork();
+  if (area !== 'local') return;
+  if (changes.comments || changes.captureEnabled || changes.backgroundCaptureStatus) render();
+  if (changes.networkCaptureStatus) renderNetwork();
 });

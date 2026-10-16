@@ -50,3 +50,31 @@ summary:focus-visible,button:focus-visible,input:focus-visible,select:focus-visi
 .auto-program-presets fieldset { min-width: 0; margin: 0; padding: 12px; border: 1px solid #555; border-radius: 8px; }
 .auto-program-presets legend { padding: 0 6px; font-weight: 600; }
 .auto-program-presets p { margin: 4px 0 10px; color: #aaa; }
+
+a{color:#add6f3;overflow-wrap:anywhere}
+.section-nav{display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:16px}
+.section-nav a{padding:6px 0}
+.explorer-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px;margin:12px 0}
+.explorer-controls label{display:flex;flex-direction:column;min-width:0}
+.explorer-controls input[type="search"],.explorer-controls select{width:100%;min-width:0}
+.explorer-controls .query-field{grid-column:span 2}
+.explorer-controls .check-label{flex-direction:row;align-items:center;gap:6px}
+.label-settings{margin:16px 0;padding:12px;border:1px solid #3d454e;border-radius:8px}
+.label-settings summary{cursor:pointer}.label-settings label{display:block;margin-top:8px}
+#autoLabelRules{width:100%;margin-bottom:10px}
+.comment-results{max-height:600px;overflow:auto;overscroll-behavior:contain}
+.comment-result{padding:14px 4px;border-top:1px solid #333;overflow-wrap:anywhere}
+.comment-heading{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.comment-heading time,.comment-source{color:#aaa;font-size:12px}
+.comment-heading button{font-size:12px;padding:4px 7px;overflow-wrap:anywhere}
+.comment-result .msg{margin:10px 0;line-height:1.7}.comment-source{margin:6px 0 0}
+.label-badges{display:flex;gap:5px;flex-wrap:wrap;margin:5px 0}
+.auto-label{background:#27382d;border:1px solid #4c7057;color:#c0e4cb;border-radius:5px;padding:2px 7px;font-size:11px;overflow-wrap:anywhere}
+mark{background:#eac965;color:#201900;border-radius:2px}
+.pagination{margin-top:14px}
+#replaySeek{display:block;width:100%;padding:0;accent-color:#80b8e0}
+.replay-comments{max-height:420px}
+#commentStatus,#replayStatus,#autoLabelStatus{font-size:13px;color:#b4d9f3;overflow-wrap:anywhere}
+#userSearch{max-width:100%;width:240px}
+.summary{margin-top:16px}
+@media(max-width:600px){.explorer-controls .query-field{grid-column:1/-1}#userSearch{width:100%}.comment-heading{align-items:flex-start}.comment-heading time{flex-basis:100%}.comment-results{max-height:480px}.section-nav{gap:4px 14px}}

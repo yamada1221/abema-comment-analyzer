@@ -10,7 +10,7 @@ async function runtime(auto=false) {
     mutedUsers:[],moderationSettings:{learningEnabled:true,learningMinComments:3,learningAutoMute:auto},userTags:{'source-user':['識別用']}};
   const listeners=[],sent=[],timers=[];
   const ctx=vm.createContext({console,navigator:{locks:{request:async(_key,fn)=>fn()}},
-    document:{title:'test'},location:{href:'https://abema.tv/now-on-air/abema-news'},window:{postMessage(){},addEventListener(){}},
+    document:{addEventListener(){},title:'test'},location:{href:'https://abema.tv/now-on-air/abema-news'},window:{postMessage(){},addEventListener(){}},
     setTimeout:(fn,delay)=>{timers.push(delay);return timers.length;},clearTimeout(){},setInterval:()=>1,clearInterval(){},
     chrome:{runtime:{id:'test',onMessage:{addListener(){}},sendMessage:async command=>{sent.push(structuredClone(command));return ctx.ABEMAModerationStore.apply(command);}},
       storage:{local:{get:async keys=>structuredClone(Object.fromEntries(keys.filter(k=>k in state).map(k=>[k,state[k]]))),

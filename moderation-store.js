@@ -42,6 +42,7 @@
         // Re-read exclusions within the same lock as cancellation; stale candidates cannot re-mute.
         if (!uid || excluded.has(uid) || muted.has(uid)) continue;
         if (entry.learned ? !(settings.learningEnabled && settings.learningAutoMute) : !settings.enabled) continue;
+        if (entry.rule === 'emoji' && !settings.emojiEnabled) continue;
         if (entry.learned) {
           const selected = ABEMACommentLearning.normalizeSelectedSamples(d.learningSelectedSamples);
           // A removed example or switched training mode must not let stale results re-mute.

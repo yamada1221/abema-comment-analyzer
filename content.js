@@ -8,6 +8,9 @@
     duplicateEnabled: true,
     duplicateCount: 3,
     duplicateWindowSec: 60,
+    emojiEnabled: false,
+    emojiCount: 3,
+    emojiWindowSec: 120,
     ngEnabled: true,
     ngWords: [],
     whitelistUsers: [],
@@ -22,7 +25,11 @@
   };
 
   let queue = [];
+  let captureEnabled = true;
+  let flushAgain = false;
+  let lastEventFlushAt = 0;
   let flushing = false;
+  let savingCount = 0;
   let contextValid = true;
   let moderation = { ...DEFAULT_MODERATION };
   let mutedUsersCache = new Set();
@@ -83,7 +90,8 @@
         t < 946684800000 || t > Date.now() + 60000) return null;
     const maxWindowMs = Math.max(
       Number(moderation.rateWindowSec || 30),
-      Number(moderation.duplicateWindowSec || 60)
+      Number(moderation.duplicateWindowSec || 60),
+      Number(moderation.emojiWindowSec || 120)
     ) * 1000;
     const previous = userActivity.get(uid) || [];
     const latest = Math.max(t, ...previous.map(item => item.t));
@@ -115,6 +123,12 @@
         spanSeconds: (window[window.length - 1].t - window[0].t) / 1000
       } };
     }
+    if (moderation.emojiEnabled && globalThis.ABEMACommentTools) {
+      const emoji = ABEMACommentTools.emojiEvidence(list.map(item => ({
+        id: item.key, message: item.message, createdAtMs: item.t
+      })), moderation);
+      if (emoji && latest === t) return { reason: `絵文字のみ ${emoji.count}件/${emoji.windowSec}秒`, evidence: emoji, rule: 'emoji' };
+    }
     if (moderation.duplicateEnabled && normalized) {
       const windowMs = Math.max(1, Number(moderation.duplicateWindowSec || 60)) * 1000;
       const window = matchingWindow(windowMs, item => item.normalized === normalized);
@@ -141,7 +155,7 @@
       const result = await chrome.runtime.sendMessage({ source: SOURCE, type: 'APPLY_AUTO_MUTE', entries: [{
         userId: uid,
         reason: typeof reason === 'string' ? reason : reason.reason,
-        ...(typeof reason === 'object' ? { evidence: reason.evidence } : {}),
+        ...(typeof reason === 'object' ? { evidence: reason.evidence, rule: reason.rule } : {}),
         message: String(comment.message || ''),
         commentAt: commentTimestamp(comment),
         pageTitle: document.title
@@ -222,7 +236,8 @@
   async function loadRuntimeSettings() {
     if (!isContextValid()) return;
     try {
-      const data = await chrome.storage.local.get(['mutedUsers', 'moderationSettings']);
+      const data = await chrome.storage.local.get(['mutedUsers', 'moderationSettings', 'captureEnabled']);
+      captureEnabled = data.captureEnabled !== false;
       mutedUsersCache = new Set((data.mutedUsers || []).map(String));
       moderation = { ...DEFAULT_MODERATION, ...(data.moderationSettings || {}) };
       whitelistCache = new Set((moderation.whitelistUsers || []).map(String));
@@ -239,9 +254,12 @@
       queue = [];
       return;
     }
-    if (flushing || queue.length === 0) return;
+    if (flushing) { flushAgain = true; return; }
+    if (queue.length === 0) return;
+    flushAgain = false;
     flushing = true;
     const batch = queue.splice(0, queue.length);
+    savingCount = batch.length;
     try {
       const result = await chrome.runtime.sendMessage({ source: SOURCE, type: 'APPEND_CAPTURED_COMMENTS', comments: batch });
       if (!result?.ok) throw new Error(result?.error || 'Comment save was not acknowledged');
@@ -254,6 +272,8 @@
       }
     } finally {
       flushing = false;
+      savingCount = 0;
+      if (flushAgain) { flushAgain = false; flush(); }
     }
   }
 
@@ -364,12 +384,16 @@
       try {
         await chrome.storage.local.set({ networkCaptureStatus: d.payload });
       } catch (error) { invalidateContext(error); }
-    } else if (d.type === 'COMMENT' && d.payload) {
+    } else if (d.type === 'COMMENT' && d.payload && captureEnabled) {
       const comment = { ...d.payload, pageUrl: location.href, pageTitle: document.title };
       queue.push(comment);
       const reason = moderationReason(comment);
       if (reason) autoMute(comment, reason);
-      if (queue.length >= 20) flush();
+      // Incoming events are not subject to hidden-tab timer throttling.
+      if (flushing || queue.length >= 20 || Date.now() - lastEventFlushAt >= 1500) {
+        lastEventFlushAt = Date.now();
+        flush();
+      }
     } else if (d.type === 'HISTORY_PROGRESS' && d.payload && isContextValid()) {
       try {
         await chrome.storage.local.set({ historyLoadProgress: d.payload });
@@ -389,7 +413,10 @@
     window.postMessage({ source: SOURCE, type: 'NETWORK_STATUS_REQUEST' }, '*');
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (!message || message.source !== SOURCE) return;
-      if (message.type === 'AUTO_PROGRAM_STATE_REQUEST') {
+      if (message.type === 'CAPTURE_HEARTBEAT') {
+        flush().then(() => sendResponse({ ok: true, pending: queue.length + savingCount, enabled: captureEnabled }));
+        return true;
+      } else if (message.type === 'AUTO_PROGRAM_STATE_REQUEST') {
         sendResponse(detectProgramKeyword(message.keyword));
       } else if (message.type === 'OPEN_COMMENT_PANEL_REQUEST') {
         postToPage('OPEN_COMMENT_PANEL', { requestId: message.requestId });
@@ -409,6 +436,10 @@
         return;
       }
       if (area !== 'local') return;
+      if (changes.captureEnabled) {
+        captureEnabled = changes.captureEnabled.newValue !== false;
+        if (!captureEnabled) { queue = []; userActivity.clear(); }
+      }
       if (changes.mutedUsers) {
         mutedUsersCache = new Set((changes.mutedUsers.newValue || []).map(String));
         postToPage('SET_MUTED_USERS', [...mutedUsersCache]);
@@ -435,5 +466,7 @@
     flush();
   }, 1500);
 
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
+  window.addEventListener('pagehide', () => flush());
   loadRuntimeSettings();
 })();

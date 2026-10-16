@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ABEMA Comment Analyzer",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "ABEMAのコメントをローカルに記録・集計し、投稿者単位で分析・自動ミュートします。",
   "permissions": [
     "storage",
@@ -18,8 +18,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://abema.tv/*"],
-      "js": ["network-bridge.js"],
+      "matches": [
+        "https://abema.tv/*"
+      ],
+      "js": [
+        "network-bridge.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     },
@@ -38,6 +42,7 @@
         "https://abema.tv/*"
       ],
       "js": [
+        "comment-tools.js",
         "learning-model.js",
         "content.js"
       ],
