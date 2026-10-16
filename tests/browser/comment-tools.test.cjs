@@ -65,6 +65,8 @@ test('comment search, automatic user tags, replay and narrow layouts work as an 
     await page.locator('#userTagsInput').fill('識別用');
     await page.locator('#saveUserTags').click();
     await waitForStorage(page,'autoTagExclusions',s=>s.autoTagExclusions?.a?.includes('災害情報'));
+    assert.equal(await page.locator('.user-table-wrap .mute').first().evaluate(el=>getComputedStyle(el).whiteSpace),'nowrap');
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
     await page.locator('#userAnalysis').scrollIntoViewIfNeeded();await screenshot(page,'tags-390');
     await page.locator('#emojiEnabled').scrollIntoViewIfNeeded();await screenshot(page,'moderation-390');
     assert.deepEqual(errors,[]);
