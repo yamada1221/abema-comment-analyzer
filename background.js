@@ -1,4 +1,5 @@
-importScripts('learning-model.js', 'moderation-store.js', 'auto-program-schedules.js');
+importScripts('user-tags.js', 'comment-tools.js', 'auto-user-tags.js', 'learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'background-capture.js');
+ABEMAAutoUserTags.start().catch(error => console.warn('[ABEMA] Auto tags startup failed:', error));
 const SOURCE = 'abema-comment-analyzer';
 const ALARM_NAME = 'auto-program-watch';
 const DEFAULT_AUTO_PROGRAM = ABEMAAutoPrograms.DEFAULTS;
@@ -437,8 +438,9 @@ async function inspectExistingAbema(keyword) {
 }
 
 async function setupAlarm() {
-  await chrome.alarms.clear(ALARM_NAME);
-  chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
+  if (!await chrome.alarms.get(ALARM_NAME)) {
+    await chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
+  }
 }
 
 chrome.runtime.onInstalled.addListener((details) => {

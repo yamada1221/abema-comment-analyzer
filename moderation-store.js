@@ -42,6 +42,12 @@
         // Re-read exclusions within the same lock as cancellation; stale candidates cannot re-mute.
         if (!uid || excluded.has(uid) || muted.has(uid)) continue;
         if (entry.learned ? !(settings.learningEnabled && settings.learningAutoMute) : !settings.enabled) continue;
+        if (entry.rule === 'emoji') {
+          const minCount = Math.max(1, Math.min(100, Math.round(Number(settings.emojiCount) || 3)));
+          const windowSec = Math.max(1, Math.min(86400, Math.round(Number(settings.emojiWindowSec) || 120)));
+          if (!settings.emojiEnabled || !entry.evidence || entry.evidence.count < minCount ||
+              entry.evidence.windowSec !== windowSec) continue;
+        }
         if (entry.learned) {
           const selected = ABEMACommentLearning.normalizeSelectedSamples(d.learningSelectedSamples);
           // A removed example or switched training mode must not let stale results re-mute.

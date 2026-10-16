@@ -50,9 +50,9 @@ async function dashboard(store) {
   w.HTMLCanvasElement.prototype.getContext = () => ({ clearRect() {}, fillRect() {}, fillText() {} });
   w.HTMLElement.prototype.scrollIntoView = () => {};
   w.confirm = () => true;
-  for (const file of ['user-tags.js', 'learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
+  for (const file of ['user-tags.js', 'learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'comment-tools.js', 'auto-user-tags.js', 'dashboard-explorer.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
   await settle();
-  assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.11.0 / 保存形式 4');
+  assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.11.0 / 保存形式 6');
   assert.doesNotMatch(w.document.getElementById('transferStatus').textContent, /失敗/);
   const el = id => w.document.getElementById(id);
   const input = value => { el('userTagsInput').value = value; el('userTagsInput').dispatchEvent(new w.Event('input')); };
@@ -88,7 +88,7 @@ test('select and revoke one comment, retain it after history expiry, and transfe
     assert.equal(w.document.querySelector('[data-learncomment]').textContent,'学習指定を解除');
     let exported;w.download=(_name,text)=>exported=JSON.parse(text);
     await w.exportTransfer();
-    assert.equal(exported.schemaVersion,4);assert.equal(exported.data.learningSelectedSamples.samples.length,1);
+    assert.equal(exported.schemaVersion,6);assert.equal(exported.data.learningSelectedSamples.samples.length,1);
     await store.local.set({comments:[]});await settle();
     assert.equal(store.state.learningSelectedSamples.samples.length,1);
     assert.match(el('learningSelectedList').textContent,/test A/);
@@ -157,7 +157,7 @@ test('upgrade, edit, filter, refresh, export and expiry preserve user data', asy
   const store = fixture(), page = await dashboard(store);
   const { w, el, input } = page;
   try {
-    assert.equal(store.state.storageSchemaVersion, 4);
+    assert.equal(store.state.storageSchemaVersion, 6);
     w.selectUser('user-a');
     input(' 要観察、定型文,要観察');
     await w.saveUserTags();
@@ -182,7 +182,7 @@ test('upgrade, edit, filter, refresh, export and expiry preserve user data', asy
     assert.match(downloads.at(-1).text, /^time,userId,message,pageTitle,userTags/);
     await w.exportTransfer();
     const payload = JSON.parse(downloads.at(-1).text);
-    assert.equal(payload.schemaVersion, 4);
+    assert.equal(payload.schemaVersion, 6);
     assert.deepEqual(payload.data.userTags, store.state.userTags);
     await store.local.set({ comments: [] });
     await settle();
@@ -309,7 +309,7 @@ test('complete backups round-trip settings while malformed envelopes leave stora
     }
     const before = clone(store.state);
     for (const patch of [{ data: [] }, { data: null }, { schemaVersion: 'broken' },
-      { schemaVersion: -1 }, { schemaVersion: 4.5 }, { schemaVersion: 5 }]) {
+      { schemaVersion: -1 }, { schemaVersion: 4.5 }, { schemaVersion: 7 }]) {
       await page.w.importTransferFile({ text: async () => JSON.stringify({ ...payload, ...patch }) });
       assert.match(page.el('transferStatus').textContent, /失敗/);
       assert.deepEqual(store.state, before);
@@ -356,7 +356,7 @@ test('arbitrary IDs, HTML-looking tags, presets and validation are safe in the U
     w.document.querySelector('[data-tag-preset="要観察"]').click();
     assert.equal(el('userTagsInput').value, '要観察');
     await w.saveUserTags(); await settle();
-    el('search').value = '要観察'; el('search').oninput();
+    el('userSearch').value = '要観察'; el('userSearch').oninput();
     assert.equal(w.document.querySelectorAll('#usersBody tr').length, 1);
   } finally { page.close(); }
 });
@@ -454,4 +454,133 @@ test('browse earlier days and a fixed JST time without incoming comments moving 
     let exported;page.w.download=(_name,text)=>exported=JSON.parse(text);
     page.el('exportJson').onclick();assert.equal(exported[0].id,'old');
   } finally {page.close();}
+});
+
+test('comment search isolates matching posts, escapes markup, and paginates without losing results', async () => {
+  const store=fixture(),page=await dashboard(store);
+  try {
+    const now=Date.now();
+    await store.local.set({comments:[...Array.from({length:205},(_,i)=>({id:String(i),userId:'same',message:i%2?'ordinary':`XX ${i}`,createdAtMs:now-i})),
+      {id:'markup',userId:'same',message:'XX <img src=x onerror=alert(1)>',createdAtMs:now}]});await settle();
+    assert.equal(page.el('commentResults').querySelectorAll('article').length,100);
+    page.el('commentQuery').value='xx';page.el('commentQuery').oninput();await new Promise(resolve=>setTimeout(resolve,200));
+    assert.match(page.el('commentStatus').textContent,/104件一致/);
+    assert.doesNotMatch(page.el('commentResults').textContent,/ordinary/);
+    assert.equal(page.el('commentResults').querySelector('img'),null);
+    assert.ok(page.el('commentResults').querySelector('mark'));
+    page.el('commentNext').onclick();assert.equal(page.el('commentResults').querySelectorAll('article').length,4);
+    let exported;page.w.download=(_name,text)=>exported=JSON.parse(text);
+    page.el('exportCommentResults').onclick();assert.equal(exported.length,104);
+    assert.ok(exported.every(c=>c.message.toLowerCase().includes('xx')));
+  } finally {page.close();}
+});
+test('automatic user tags integrate with existing tags, search, exports and transfer',async()=>{
+  const store=fixture();store.state.userTags={'user-a':['identity']};
+  const page=await dashboard(store);
+  try {
+    page.el('autoTagRules').value='指定語: test A';page.el('autoTagRules').oninput();
+    await page.el('saveAutoTags').onclick();await settle();
+    assert.deepEqual(store.state.userTags,{'user-a':['identity','指定語']});
+    page.el('tagFilter').value='tag:指定語';page.el('tagFilter').onchange();
+    assert.equal(page.el('usersBody').querySelectorAll('tr').length,1);
+    page.w.selectUser('user-a');assert.equal(page.el('userTagsInput').value,'identity, 指定語');
+    assert.doesNotMatch(page.w.document.body.textContent,/疑問表現|自動ラベル/);
+    page.el('commentTagFilter').value='指定語';page.el('commentTagFilter').onchange();
+    assert.equal(page.el('commentResults').querySelectorAll('article').length,1);
+    assert.match(page.el('commentResults').textContent,/test A/);
+    let exported;page.w.download=(_name,text)=>exported=JSON.parse(text);await page.w.exportTransfer();
+    assert.equal(exported.data.autoTagSettings.rules[0].tag,'指定語');
+    await page.w.importTransferFile({text:async()=>JSON.stringify({format:'abema-comment-analyzer-transfer',schemaVersion:4,data:{mutedUsers:[]}})});
+    assert.equal(store.state.autoTagSettings.rules[0].tag,'指定語');
+    const before=JSON.stringify(store.state);exported.data.autoTagSettings.rules=[{tag:'x',keywords:[null]}];
+    await page.w.importTransferFile({text:async()=>JSON.stringify(exported)});
+    assert.match(page.el('transferStatus').textContent,/失敗/);assert.equal(JSON.stringify(store.state),before);
+  }finally{page.close();}
+});
+test('legacy rules migrate and removing an automatic tag survives capture, reload and transfer',async()=>{
+  const store=fixture();
+  store.state.userTags={'user-a':['identity']};
+  store.state.autoLabelSettings={enabled:true,rules:[{label:'指定語',keywords:['test A']}]};
+  const page=await dashboard(store);
+  try {
+    assert.deepEqual(store.state.userTags['user-a'],['identity','指定語']);
+    assert.deepEqual(store.state.autoTagSettings.rules,[{tag:'指定語',keywords:['test A']}]);
+    page.w.selectUser('user-a');page.input('identity');await page.w.saveUserTags();await settle();
+    assert.deepEqual(store.state.autoTagExclusions,{'user-a':['指定語']});
+    await store.local.set({comments:[...store.state.comments,{id:'new',userId:'user-a',message:'test A?',createdAtMs:Date.now()}]});
+    await settle();await page.w.ABEMAAutoUserTags.refresh();
+    assert.deepEqual(store.state.userTags['user-a'],['identity']);
+    let payload;page.w.download=(_name,text)=>payload=JSON.parse(text);await page.w.exportTransfer();
+    assert.deepEqual(payload.data.autoTagExclusions,{'user-a':['指定語']});
+    await page.w.importTransferFile({text:async()=>JSON.stringify(payload)});
+    assert.deepEqual(store.state.userTags['user-a'],['identity']);
+    const reopened=await dashboard(store);
+    try {assert.deepEqual(store.state.userTags['user-a'],['identity']);}finally{reopened.close();}
+    const before=JSON.stringify(store.state);payload.data.autoTagExclusions={'user-a':[42]};
+    await page.w.importTransferFile({text:async()=>JSON.stringify(payload)});
+    assert.match(page.el('transferStatus').textContent,/失敗/);assert.equal(JSON.stringify(store.state),before);
+    page.input('identity, 指定語');await page.w.saveUserTags();await settle();
+    assert.deepEqual(store.state.autoTagExclusions,{});
+  }finally{page.close();}
+});
+
+test('tag filters combine with comment-level search and include tags in search export',async()=>{
+  const store=fixture();store.state.autoTagSettings={rules:[{tag:'指定語',keywords:['test A']}]};
+  store.state.comments.push({id:'other',userId:'user-a',message:'unrelated',createdAtMs:Date.now()});
+  const page=await dashboard(store);
+  try {
+    page.el('commentTagFilter').value='指定語';page.el('commentTagFilter').onchange();
+    assert.equal(page.el('commentResults').querySelectorAll('article').length,2);
+    page.el('commentQuery').value='test A';page.el('commentTarget').onchange();
+    assert.equal(page.el('commentResults').querySelectorAll('article').length,1);
+    assert.doesNotMatch(page.el('commentResults').textContent,/unrelated/);
+    let exported;page.w.download=(_name,text)=>exported=JSON.parse(text);page.el('exportCommentResults').onclick();
+    assert.equal(exported.length,1);assert.deepEqual(exported[0].userTags,['指定語']);
+    assert.equal('autoLabels' in exported[0],false);
+    page.el('autoTagsEnabled').checked=false;await page.el('saveAutoTags').onclick();
+    await store.local.set({comments:[{id:'late',userId:'new',message:'test A',createdAtMs:Date.now()}]});await settle();
+    assert.deepEqual(store.state.userTags,{'user-a':['指定語']});
+  }finally{page.close();}
+});
+
+test('replay freezes current results while capture continues, and filter edits clear it',async()=>{
+  const store=fixture(),page=await dashboard(store);
+  try {
+    page.el('loadReplay').onclick();assert.match(page.el('replayStatus').textContent,/1 \/ 2件/);
+    await store.local.set({comments:[...store.state.comments,{id:'new',userId:'user-a',message:'new arrival',createdAtMs:Date.now()}]});await settle();
+    page.el('replayNext').onclick();assert.match(page.el('replayStatus').textContent,/2 \/ 2件/);
+    assert.doesNotMatch(page.el('replayComments').textContent,/new arrival/);
+    page.el('replayRestart').onclick();assert.match(page.el('replayStatus').textContent,/1 \/ 2件/);
+    page.el('commentTarget').value='user';page.el('commentTarget').onchange();
+    assert.equal(page.el('replayPlay').disabled,true);assert.equal(page.el('replayComments').textContent,'');
+  }finally{page.close();}
+});
+test('emoji settings default off and round-trip with exclusions and existing settings',async()=>{
+  const store=fixture(),page=await dashboard(store);
+  try {
+    assert.equal(page.el('emojiEnabled').checked,false);
+    page.el('emojiEnabled').checked=true;page.el('emojiCount').value='4';page.el('emojiWindowSec').value='180';
+    await page.el('saveModeration').onclick();
+    assert.equal(store.state.moderationSettings.emojiEnabled,true);
+    assert.equal(store.state.moderationSettings.emojiCount,4);
+    assert.equal(store.state.moderationSettings.emojiWindowSec,180);
+    assert.deepEqual(store.state.moderationSettings.ngWords,['existing']);
+    let exported;page.w.download=(_name,text)=>exported=JSON.parse(text);await page.w.exportTransfer();
+    await page.w.importTransferFile({text:async()=>JSON.stringify(exported)});
+    assert.equal(store.state.moderationSettings.emojiCount,4);
+  }finally{page.close();}
+});
+
+test('changing emoji thresholds invalidates queued mute decisions before storage is changed',async()=>{
+  const store=fixture(),page=await dashboard(store);
+  try {
+    await store.local.set({moderationSettings:{enabled:true,emojiEnabled:true,emojiCount:5,emojiWindowSec:120}});
+    const command={type:'APPLY_AUTO_MUTE',entries:[{userId:'target',rule:'emoji',reason:'絵文字のみ 3件/120秒',
+      evidence:{count:3,windowSec:120}}]};
+    const before=JSON.stringify(store.state.mutedUsers);
+    assert.equal((await page.w.ABEMAModerationStore.apply(command)).count,0);
+    assert.equal(JSON.stringify(store.state.mutedUsers),before);
+    await store.local.set({moderationSettings:{enabled:true,emojiEnabled:true,emojiCount:3,emojiWindowSec:60}});
+    assert.equal((await page.w.ABEMAModerationStore.apply(command)).count,0);
+  }finally{page.close();}
 });

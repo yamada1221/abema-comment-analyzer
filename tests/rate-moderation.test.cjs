@@ -6,7 +6,8 @@ const vm = require('node:vm');
 const now = Date.now()-1000;
 const source = fs.readFileSync(path.join(__dirname,'../content.js'),'utf8');
 function detector(options={}) {
-  const ctx=vm.createContext({moderation:{enabled:true,rateEnabled:true,rateCount:8,rateWindowSec:120,duplicateEnabled:false,duplicateWindowSec:60,ngEnabled:false,...options},userActivity:new Map(),whitelistCache:new Set(),mutedUsersCache:new Set()});
+  const ctx=vm.createContext({moderation:{enabled:true,rateEnabled:true,rateCount:8,rateWindowSec:120,duplicateEnabled:false,duplicateWindowSec:60,ngEnabled:false,...options},userActivity:new Map(),lastNonEmojiAt:new Map(),whitelistCache:new Set(),mutedUsersCache:new Set()});
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../comment-tools.js'),'utf8'),ctx);
   vm.runInContext(source.slice(source.indexOf('  function normalizeMessage'),source.indexOf('  async function autoMute')),ctx);
   return c=>ctx.moderationReason(c);
 }
@@ -55,4 +56,30 @@ test('bridge marks fallback timestamps as unreliable and preserves real posting 
   assert.equal(payloads[0].timestampReliable,false);
   assert.equal(payloads[1].timestampReliable,true);
   assert.equal(payloads[1].createdAtMs,now);
+});
+
+const emoji='\u{1F600}';
+test('emoji-only mute requires configured unique posts and respects a mixed window',()=>{
+  const run=detector({rateEnabled:false,emojiEnabled:true,emojiCount:3,emojiWindowSec:120});
+  assert.equal(run(comment('a',-40000,{message:emoji})),null);
+  assert.equal(run(comment('a',-40000,{message:emoji})),null);
+  assert.equal(run(comment('b',-20000,{message:emoji})),null);
+  const result=run(comment('c',0,{message:emoji}));
+  assert.equal(result.rule,'emoji');assert.equal(result.evidence.count,3);
+  const mixed=detector({rateEnabled:false,emojiEnabled:true});
+  mixed(comment('ordinary',-50000));
+  for(let i=0;i<5;i++)assert.equal(mixed(comment(String(i),-40000+i*1000,{message:emoji})),null);
+});
+test('emoji mute is opt-in and never counts historical arrival timestamps as a burst',()=>{
+  const off=detector({rateEnabled:false});
+  for(let i=0;i<5;i++)assert.equal(off(comment(String(i),0,{message:emoji})),null);
+  const on=detector({rateEnabled:false,emojiEnabled:true,emojiCount:1});
+  assert.equal(on(comment('unknown',0,{message:emoji,timestampReliable:false})),null);
+  assert.match(on(comment('known',0,{message:emoji})).reason,/絵文字のみ 1件/);
+});
+
+test('an ordinary comment in the time window still prevents emoji-only mute after the activity cap',()=>{
+  const run=detector({rateEnabled:false,emojiEnabled:true,emojiCount:3,emojiWindowSec:120});
+  assert.equal(run(comment('ordinary',-119000)),null);
+  for(let i=0;i<110;i++)assert.equal(run(comment('emoji-'+i,-110000+i*1000,{message:emoji})),null);
 });

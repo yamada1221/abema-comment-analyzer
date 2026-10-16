@@ -14,7 +14,7 @@ function harness(existing=[]) {
   const start=background.indexOf('async function appendCapturedComments(');
   if(start>=0)vm.runInContext(background.slice(start,background.indexOf('\nfunction ',start)),worker);
   function tab(batch){
-  const ctx=vm.createContext({SOURCE:'abema-comment-analyzer',queue:structuredClone(batch),flushing:false,contextValid:true,isContextValid:()=>true,invalidateContext:()=>false,moderation:{learningEnabled:false},chrome:{storage:{local},runtime:{sendMessage:async message=>{
+  const ctx=vm.createContext({SOURCE:'abema-comment-analyzer',queue:structuredClone(batch),flushing:false,savingCount:0,flushAgain:false,contextValid:true,captureEnabled:true,isContextValid:()=>true,invalidateContext:()=>false,moderation:{learningEnabled:false},chrome:{storage:{local},runtime:{sendMessage:async message=>{
     assert.equal(message.type,'APPEND_CAPTURED_COMMENTS');
     return worker.appendCapturedComments(message.comments);
   }}},console:{warn(){}}});
