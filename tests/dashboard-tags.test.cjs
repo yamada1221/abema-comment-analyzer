@@ -50,9 +50,9 @@ async function dashboard(store) {
   w.HTMLCanvasElement.prototype.getContext = () => ({ clearRect() {}, fillRect() {}, fillText() {} });
   w.HTMLElement.prototype.scrollIntoView = () => {};
   w.confirm = () => true;
-  for (const file of ['user-tags.js', 'learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'comment-tools.js', 'dashboard-explorer.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
+  for (const file of ['user-tags.js', 'learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'comment-tools.js', 'auto-user-tags.js', 'dashboard-explorer.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
   await settle();
-  assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.11.0 / 保存形式 5');
+  assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.11.0 / 保存形式 6');
   assert.doesNotMatch(w.document.getElementById('transferStatus').textContent, /失敗/);
   const el = id => w.document.getElementById(id);
   const input = value => { el('userTagsInput').value = value; el('userTagsInput').dispatchEvent(new w.Event('input')); };
@@ -88,7 +88,7 @@ test('select and revoke one comment, retain it after history expiry, and transfe
     assert.equal(w.document.querySelector('[data-learncomment]').textContent,'学習指定を解除');
     let exported;w.download=(_name,text)=>exported=JSON.parse(text);
     await w.exportTransfer();
-    assert.equal(exported.schemaVersion,5);assert.equal(exported.data.learningSelectedSamples.samples.length,1);
+    assert.equal(exported.schemaVersion,6);assert.equal(exported.data.learningSelectedSamples.samples.length,1);
     await store.local.set({comments:[]});await settle();
     assert.equal(store.state.learningSelectedSamples.samples.length,1);
     assert.match(el('learningSelectedList').textContent,/test A/);
@@ -157,7 +157,7 @@ test('upgrade, edit, filter, refresh, export and expiry preserve user data', asy
   const store = fixture(), page = await dashboard(store);
   const { w, el, input } = page;
   try {
-    assert.equal(store.state.storageSchemaVersion, 5);
+    assert.equal(store.state.storageSchemaVersion, 6);
     w.selectUser('user-a');
     input(' 要観察、定型文,要観察');
     await w.saveUserTags();
@@ -182,7 +182,7 @@ test('upgrade, edit, filter, refresh, export and expiry preserve user data', asy
     assert.match(downloads.at(-1).text, /^time,userId,message,pageTitle,userTags/);
     await w.exportTransfer();
     const payload = JSON.parse(downloads.at(-1).text);
-    assert.equal(payload.schemaVersion, 5);
+    assert.equal(payload.schemaVersion, 6);
     assert.deepEqual(payload.data.userTags, store.state.userTags);
     await store.local.set({ comments: [] });
     await settle();
@@ -309,7 +309,7 @@ test('complete backups round-trip settings while malformed envelopes leave stora
     }
     const before = clone(store.state);
     for (const patch of [{ data: [] }, { data: null }, { schemaVersion: 'broken' },
-      { schemaVersion: -1 }, { schemaVersion: 4.5 }, { schemaVersion: 6 }]) {
+      { schemaVersion: -1 }, { schemaVersion: 4.5 }, { schemaVersion: 7 }]) {
       await page.w.importTransferFile({ text: async () => JSON.stringify({ ...payload, ...patch }) });
       assert.match(page.el('transferStatus').textContent, /失敗/);
       assert.deepEqual(store.state, before);
@@ -474,25 +474,75 @@ test('comment search isolates matching posts, escapes markup, and paginates with
     assert.ok(exported.every(c=>c.message.toLowerCase().includes('xx')));
   } finally {page.close();}
 });
-test('custom automatic labels filter comments without replacing identity tags, and transfer safely',async()=>{
+test('automatic user tags integrate with existing tags, search, exports and transfer',async()=>{
   const store=fixture();store.state.userTags={'user-a':['identity']};
   const page=await dashboard(store);
   try {
-    page.el('autoLabelRules').value='指定語: test A';page.el('autoLabelRules').oninput();
-    await page.el('saveAutoLabels').onclick();await settle();
-    assert.deepEqual(store.state.userTags,{'user-a':['identity']});
-    page.el('autoLabelFilter').value='指定語';page.el('autoLabelFilter').onchange();
+    page.el('autoTagRules').value='指定語: test A';page.el('autoTagRules').oninput();
+    await page.el('saveAutoTags').onclick();await settle();
+    assert.deepEqual(store.state.userTags,{'user-a':['identity','指定語']});
+    page.el('tagFilter').value='tag:指定語';page.el('tagFilter').onchange();
+    assert.equal(page.el('usersBody').querySelectorAll('tr').length,1);
+    page.w.selectUser('user-a');assert.equal(page.el('userTagsInput').value,'identity, 指定語');
+    assert.doesNotMatch(page.w.document.body.textContent,/疑問表現|自動ラベル/);
+    page.el('commentTagFilter').value='指定語';page.el('commentTagFilter').onchange();
     assert.equal(page.el('commentResults').querySelectorAll('article').length,1);
     assert.match(page.el('commentResults').textContent,/test A/);
     let exported;page.w.download=(_name,text)=>exported=JSON.parse(text);await page.w.exportTransfer();
-    assert.equal(exported.data.autoLabelSettings.rules[0].label,'指定語');
+    assert.equal(exported.data.autoTagSettings.rules[0].tag,'指定語');
     await page.w.importTransferFile({text:async()=>JSON.stringify({format:'abema-comment-analyzer-transfer',schemaVersion:4,data:{mutedUsers:[]}})});
-    assert.equal(store.state.autoLabelSettings.rules[0].label,'指定語');
-    const before=JSON.stringify(store.state);exported.data.autoLabelSettings.rules=[{label:'x',keywords:[null]}];
+    assert.equal(store.state.autoTagSettings.rules[0].tag,'指定語');
+    const before=JSON.stringify(store.state);exported.data.autoTagSettings.rules=[{tag:'x',keywords:[null]}];
     await page.w.importTransferFile({text:async()=>JSON.stringify(exported)});
     assert.match(page.el('transferStatus').textContent,/失敗/);assert.equal(JSON.stringify(store.state),before);
   }finally{page.close();}
 });
+test('legacy rules migrate and removing an automatic tag survives capture, reload and transfer',async()=>{
+  const store=fixture();
+  store.state.userTags={'user-a':['identity']};
+  store.state.autoLabelSettings={enabled:true,rules:[{label:'指定語',keywords:['test A']}]};
+  const page=await dashboard(store);
+  try {
+    assert.deepEqual(store.state.userTags['user-a'],['identity','指定語']);
+    assert.deepEqual(store.state.autoTagSettings.rules,[{tag:'指定語',keywords:['test A']}]);
+    page.w.selectUser('user-a');page.input('identity');await page.w.saveUserTags();await settle();
+    assert.deepEqual(store.state.autoTagExclusions,{'user-a':['指定語']});
+    await store.local.set({comments:[...store.state.comments,{id:'new',userId:'user-a',message:'test A?',createdAtMs:Date.now()}]});
+    await settle();await page.w.ABEMAAutoUserTags.refresh();
+    assert.deepEqual(store.state.userTags['user-a'],['identity']);
+    let payload;page.w.download=(_name,text)=>payload=JSON.parse(text);await page.w.exportTransfer();
+    assert.deepEqual(payload.data.autoTagExclusions,{'user-a':['指定語']});
+    await page.w.importTransferFile({text:async()=>JSON.stringify(payload)});
+    assert.deepEqual(store.state.userTags['user-a'],['identity']);
+    const reopened=await dashboard(store);
+    try {assert.deepEqual(store.state.userTags['user-a'],['identity']);}finally{reopened.close();}
+    const before=JSON.stringify(store.state);payload.data.autoTagExclusions={'user-a':[42]};
+    await page.w.importTransferFile({text:async()=>JSON.stringify(payload)});
+    assert.match(page.el('transferStatus').textContent,/失敗/);assert.equal(JSON.stringify(store.state),before);
+    page.input('identity, 指定語');await page.w.saveUserTags();await settle();
+    assert.deepEqual(store.state.autoTagExclusions,{});
+  }finally{page.close();}
+});
+
+test('tag filters combine with comment-level search and include tags in search export',async()=>{
+  const store=fixture();store.state.autoTagSettings={rules:[{tag:'指定語',keywords:['test A']}]};
+  store.state.comments.push({id:'other',userId:'user-a',message:'unrelated',createdAtMs:Date.now()});
+  const page=await dashboard(store);
+  try {
+    page.el('commentTagFilter').value='指定語';page.el('commentTagFilter').onchange();
+    assert.equal(page.el('commentResults').querySelectorAll('article').length,2);
+    page.el('commentQuery').value='test A';page.el('commentTarget').onchange();
+    assert.equal(page.el('commentResults').querySelectorAll('article').length,1);
+    assert.doesNotMatch(page.el('commentResults').textContent,/unrelated/);
+    let exported;page.w.download=(_name,text)=>exported=JSON.parse(text);page.el('exportCommentResults').onclick();
+    assert.equal(exported.length,1);assert.deepEqual(exported[0].userTags,['指定語']);
+    assert.equal('autoLabels' in exported[0],false);
+    page.el('autoTagsEnabled').checked=false;await page.el('saveAutoTags').onclick();
+    await store.local.set({comments:[{id:'late',userId:'new',message:'test A',createdAtMs:Date.now()}]});await settle();
+    assert.deepEqual(store.state.userTags,{'user-a':['指定語']});
+  }finally{page.close();}
+});
+
 test('replay freezes current results while capture continues, and filter edits clear it',async()=>{
   const store=fixture(),page=await dashboard(store);
   try {

@@ -3,12 +3,11 @@
   const tools = ABEMACommentTools, el = id => document.getElementById(id);
   const escape = text => String(text ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const date = value => new Date(value).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
-  let rows = [], matches = [], muted = [], labels = tools.DEFAULT_LABEL_SETTINGS, page = 0;
-  let labelDirty = false, queryTimer, replayTimer, lastTick = 0, replayShown = -1;
+  let rows = [], matches = [], muted = [], settings = tools.DEFAULT_TAG_SETTINGS, page = 0;
+  let tagDirty = false, queryTimer, replayTimer, lastTick = 0, replayShown = -1;
   const replay = new tools.Replay(), pageSize = 100;
-  const byUser = new Map();
   function badges(items) {
-    return items.map(item => `<span class="auto-label" title="${escape(item.reason)}">${escape(item.name)}</span>`).join('');
+    return items.map(item => `<span class="user-tag" title="${escape(item.reason)}">${escape(item.name)}</span>`).join('');
   }
   function highlighted(message) {
     const q = tools.normalize(el('commentQuery').value).trim(), text = String(message || '');
@@ -36,7 +35,7 @@
         <button type="button" data-result-user="${escape(uid)}">${escape(uid)}</button>
         <button type="button" class="mute" data-result-mute="${escape(uid)}">${muted.includes(uid)?'ミュート解除':'ミュート'}</button></div>
         <p class="msg" id="${prefix}-${i}">${highlighted(c.message)}</p>
-        <div class="label-badges">${badges(row.labels)}</div>
+        <div class="tag-badges">${badges(row.tags)}</div>
         <p class="comment-source">${escape(c.pageTitle || '番組情報なし')}${c.timestampReliable === false?' / 投稿時刻不明（取得時刻）':''}</p></article>`;
     }).join('');
   }
@@ -60,7 +59,7 @@
   }
   function render() {
     matches = tools.filterRows(rows, { query: el('commentQuery').value, target: el('commentTarget').value,
-      label: el('autoLabelFilter').value, channel: el('commentChannel').value, hideMuted: el('hideMutedComments').checked,
+      tag: el('commentTagFilter').value, channel: el('commentChannel').value, hideMuted: el('hideMutedComments').checked,
       mutedUsers: muted, order: el('commentOrder').value });
     page = Math.min(page, Math.max(0,Math.ceil(matches.length/pageSize)-1));
     const start = page*pageSize, visible = matches.slice(start,start+pageSize), box = el('commentResults');
@@ -78,42 +77,44 @@
     render();
   }
   el('commentQuery').oninput = () => { clearTimeout(queryTimer); queryTimer = setTimeout(filterChanged, 150); };
-  for (const id of ['commentTarget','autoLabelFilter','commentChannel','hideMutedComments','commentOrder']) el(id).onchange = filterChanged;
-  el('clearCommentSearch').onclick = () => { el('commentQuery').value = ''; el('commentTarget').value='message'; el('autoLabelFilter').value=''; el('commentChannel').value=''; el('hideMutedComments').checked=false; filterChanged(); };
+  for (const id of ['commentTarget','commentTagFilter','commentChannel','hideMutedComments','commentOrder']) el(id).onchange = filterChanged;
+  el('clearCommentSearch').onclick = () => { el('commentQuery').value = ''; el('commentTarget').value='message'; el('commentTagFilter').value=''; el('commentChannel').value=''; el('hideMutedComments').checked=false; filterChanged(); };
   el('commentPrev').onclick = () => { page--; render(); };
   el('commentNext').onclick = () => { page++; render(); };
-  el('exportCommentResults').onclick = () => download('abema-comment-search.json', JSON.stringify(matches.map(row => ({...row.comment, autoLabels:row.labels})),null,2),'application/json');
-  el('autoLabelsEnabled').onchange = el('autoLabelRules').oninput = () => { labelDirty=true; el('autoLabelStatus').textContent='未保存の変更があります。'; };
-  el('saveAutoLabels').onclick = async () => {
+  el('exportCommentResults').onclick = () => download('abema-comment-search.json', JSON.stringify(matches.map(row => ({...row.comment, userTags:row.tags.map(item=>item.name)})),null,2),'application/json');
+  el('autoTagsEnabled').onchange = el('autoTagRules').oninput = () => { tagDirty=true; el('autoTagStatus').textContent='未保存の変更があります。'; };
+  el('saveAutoTags').onclick = async () => {
+    const controls = ['saveAutoTags', 'autoTagsEnabled', 'autoTagRules'].map(el);
+    if (el('saveAutoTags').disabled) return;
+    controls.forEach(control => control.disabled = true);
     try {
-      const next = { enabled: el('autoLabelsEnabled').checked, rules: tools.parseRules(el('autoLabelRules').value) };
-      await chrome.storage.local.set({ autoLabelSettings: next });
-      labelDirty = false;
-      el('autoLabelStatus').textContent = '保存しました。分析範囲のコメントに適用します。';
-    } catch (error) { el('autoLabelStatus').textContent = error.message || String(error); }
+      const next = { enabled: el('autoTagsEnabled').checked, rules: tools.parseRules(el('autoTagRules').value) };
+      await navigator.locks.request('abema-comment-analyzer-user-tags', async () => {
+        const data = await chrome.storage.local.get('storageSchemaVersion');
+        if (Number(data.storageSchemaVersion) > 6) throw new Error('新しい保存形式です。拡張機能を更新してください。');
+        await chrome.storage.local.set({ autoTagSettings: next });
+      });
+      await ABEMAAutoUserTags.refresh();
+      tagDirty = false;
+      await load(false);
+      el('autoTagStatus').textContent = next.enabled ? '保存しました。保存履歴からユーザータグを追加しました。' : '自動付与を停止しました。保存済みのタグは保持します。';
+    } catch (error) { el('autoTagStatus').textContent = error.message || String(error); }
+    finally { controls.forEach(control => control.disabled = false); }
   };
-  function refresh(comments, mutedUsers, settings, moderation) {
-    labels = tools.normalizeLabelSettings(settings);
+  function refresh(comments, mutedUsers, config, userTags) {
+    settings = tools.normalizeTagSettings(config);
     const muteChanged = JSON.stringify(muted) !== JSON.stringify(mutedUsers);
-    rows = tools.annotate(comments, labels, moderation); muted = [...mutedUsers];
-    byUser.clear();
-    for (const row of rows) {
-      const uid=String(row.comment.userId);
-      if (!byUser.has(uid)) byUser.set(uid,new Map());
-      const map=byUser.get(uid);
-      for (const label of row.labels) { const prev=map.get(label.name); map.set(label.name,{...label,count:(prev?.count||0)+1}); }
-    }
-    options(el('autoLabelFilter'), [['','すべてのラベル'], ...[...new Set(rows.flatMap(row=>row.labels.map(item=>item.name)))].sort().map(name=>[name,name])]);
+    rows = comments.map(comment => ({ comment, tags: ABEMAUserTags.get(userTags, String(comment.userId))
+      .map(name => ({ name, reason: '投稿者のユーザータグ' })) }));
+    muted = [...mutedUsers];
+    options(el('commentTagFilter'), [['','すべてのタグ'], ...[...new Set(Object.values(userTags).flat())].sort().map(name=>[name,name])]);
     const channels = new Map();
     for (const row of rows) if(row.comment.pageUrl) channels.set(row.comment.pageUrl,row.comment.pageUrl.replace(/^https:\/\/abema.tv\//,''));
     options(el('commentChannel'), [['','すべてのページ'], ...channels.entries()]);
-    if (!labelDirty) { el('autoLabelsEnabled').checked=labels.enabled; el('autoLabelRules').value=labels.rules.map(rule=>`${rule.label}: ${rule.keywords.join(', ')}`).join('\n'); }
+    if (!tagDirty) { el('autoTagsEnabled').checked=settings.enabled; el('autoTagRules').value=settings.rules.map(rule=>`${rule.tag}: ${rule.keywords.join(', ')}`).join('\n'); }
     render();
     // Keep the loaded replay fixed while capture and search results continue updating.
     if (muteChanged && replay.rows.length) { replayShown=-1; renderReplay(true); }
-  }
-  function userBadges(uid) {
-    return badges([...(byUser.get(uid)?.values()||[])].map(item=>({...item, name:`${item.name} ${item.count}件`})));
   }
   function pause() { replay.playing=false; clearInterval(replayTimer); replayTimer=null; }
   function renderReplay(keepScroll = false) {
@@ -131,7 +132,7 @@
   }
   el('loadReplay').onclick = () => {
     clearTimeout(queryTimer); render(); pause();
-    replay.reset(matches.map(row=>({comment:{...row.comment},labels:row.labels.map(label=>({...label}))})));
+    replay.reset(matches.map(row=>({comment:{...row.comment},tags:row.tags.map(tag=>({...tag}))})));
     replay.speed=Number(el('replaySpeed').value); replayShown=-1;renderReplay();
   };
   el('replayPlay').onclick = () => {
@@ -152,6 +153,6 @@
   el('replaySeek').oninput = () => {pause();replay.seek(replay.start+Number(el('replaySeek').value));renderReplay();};
   document.addEventListener('visibilitychange',()=>{if(document.hidden){pause();renderReplay();}});
   window.addEventListener('pagehide',pause);
-  globalThis.ABEMAExplorer={refresh,userBadges};
+  globalThis.ABEMAExplorer={refresh};
   renderReplay();
 })();

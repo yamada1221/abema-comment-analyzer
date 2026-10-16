@@ -16,7 +16,7 @@ async function screenshot(page,name) {
   await fs.mkdir(process.env.ABEMA_SCREENSHOT_DIR,{recursive:true});
   await page.screenshot({path:path.join(process.env.ABEMA_SCREENSHOT_DIR,`${name}.png`)});
 }
-test('comment search, label settings, replay and narrow layouts work as an installed extension',async()=>{
+test('comment search, automatic user tags, replay and narrow layouts work as an installed extension',async()=>{
   const {context,worker,id}=await extension();
   try {
     const now=Date.now()-30000;
@@ -34,11 +34,14 @@ test('comment search, label settings, replay and narrow layouts work as an insta
     assert.doesNotMatch(await page.locator('#commentResults').innerText(),/通常コメント/);
     assert.equal(await page.locator('#commentResults script').count(),0);
     assert.equal(await page.locator('#commentResults mark').count(),2);
-    await page.locator('.label-settings summary').click();
-    await page.locator('#autoLabelRules').fill('災害情報: 地震, 津波');
-    await page.locator('#saveAutoLabels').click();
-    await waitForStorage(page,'autoLabelSettings',state=>state.autoLabelSettings?.rules[0]?.label==='災害情報');
-    await page.locator('#autoLabelFilter').selectOption('災害情報');
+    await page.locator('.auto-tag-settings summary').click();
+    await page.locator('#autoTagRules').fill('災害情報: 地震, 津波');
+    await page.locator('#saveAutoTags').click();
+    await waitForStorage(page,'autoTagSettings',state=>state.autoTagSettings?.rules[0]?.tag==='災害情報');
+    await waitForStorage(page,'userTags',state=>state.userTags?.a?.includes('災害情報'));
+    await page.locator('#commentTagFilter').selectOption('災害情報');
+    assert.equal(await page.locator('#commentResults article').count(),2);
+    assert.doesNotMatch(await page.locator('body').innerText(),/疑問表現|自動ラベル/);
     for(const [width,height] of [[1440,1000],[900,900],[390,844]]) {
       await page.setViewportSize({width,height});
       await page.locator('#commentExplorer').scrollIntoViewIfNeeded();
@@ -53,9 +56,29 @@ test('comment search, label settings, replay and narrow layouts work as an insta
     await page.locator('#replayPlay').click();
     await page.waitForFunction(()=>document.getElementById('replayStatus').textContent.includes('再生終了'));
     await page.locator('#commentReplay').scrollIntoViewIfNeeded();await screenshot(page,'replay-390');
-    const tag=await worker.evaluate(()=>chrome.storage.local.get('userTags'));assert.deepEqual(tag.userTags,{a:['識別用']});
+    const tag=await worker.evaluate(()=>chrome.storage.local.get('userTags'));assert.deepEqual(tag.userTags.a,['識別用','災害情報']);
+    assert.deepEqual(tag.userTags['b'.repeat(120)],['災害情報']);
+    await page.locator('#tagFilter').selectOption('tag:災害情報');
+    assert.equal(await page.locator('#usersBody tr').count(),2);
+    await page.locator('[data-user="a"] td').first().click();
+    assert.equal(await page.locator('#userTagsInput').inputValue(),'識別用, 災害情報');
+    await page.locator('#userTagsInput').fill('識別用');
+    await page.locator('#saveUserTags').click();
+    await waitForStorage(page,'autoTagExclusions',s=>s.autoTagExclusions?.a?.includes('災害情報'));
+    await page.locator('#userAnalysis').scrollIntoViewIfNeeded();await screenshot(page,'tags-390');
     await page.locator('#emojiEnabled').scrollIntoViewIfNeeded();await screenshot(page,'moderation-390');
     assert.deepEqual(errors,[]);
+    await page.close();
+    // New captured comments must tag users even with every dashboard closed.
+    await worker.evaluate(async()=>{
+      const {comments}=await chrome.storage.local.get('comments');
+      await chrome.storage.local.set({comments:[...comments,
+        {id:'after-close',userId:'new-user',message:'津波',createdAtMs:Date.now()},
+        {id:'removed-tag',userId:'a',message:'地震',createdAtMs:Date.now()}]});
+    });
+    const saved=await waitForStorage(worker,'userTags',s=>s.userTags?.['new-user']?.includes('災害情報'));
+    assert.deepEqual(saved.userTags.a,['識別用']);
+
   }finally{await context.close();}
 });
 test('background capture protects tabs, saves received comments and supports reversible emoji mutes',async()=>{

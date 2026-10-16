@@ -1,4 +1,5 @@
-importScripts('learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'background-capture.js');
+importScripts('user-tags.js', 'comment-tools.js', 'auto-user-tags.js', 'learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'background-capture.js');
+ABEMAAutoUserTags.start().catch(error => console.warn('[ABEMA] Auto tags startup failed:', error));
 const SOURCE = 'abema-comment-analyzer';
 const ALARM_NAME = 'auto-program-watch';
 const DEFAULT_AUTO_PROGRAM = ABEMAAutoPrograms.DEFAULTS;

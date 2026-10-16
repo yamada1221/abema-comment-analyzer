@@ -27,42 +27,44 @@ test('emoji evidence counts unique reliable posts and rejects a mixed window',()
   assert.equal(tools.emojiEvidence([cs[0]],{emojiCount:1}).count,1);
   assert.equal(tools.emojiEvidence([...cs].reverse()).count,3);
 });
-test('automatic labels annotate each comment with evidence and do not mutate source records',()=>{
+test('automatic tags annotate each comment with evidence and do not mutate source records',()=>{
   const cs=[c('a','ＡＢＣ?'),c('b','normal'),c('c',smile),c('d','https://example.test/')];
   const before=JSON.stringify(cs);
-  const rows=tools.annotate(cs,{rules:[{label:'指定語',keywords:['abc']}]});
-  assert.deepEqual(Array.from(rows[0].labels,x=>x.name),['疑問表現','指定語']);
-  assert.equal(rows[1].labels.length,0);
-  assert.equal(rows[2].labels[0].name,'絵文字のみ');
-  assert.equal(rows[3].labels[0].name,'URLあり');
+  const rows=tools.annotate(cs,{rules:[{tag:'指定語',keywords:['abc']}]});
+  assert.deepEqual(Array.from(rows[0].tags,x=>x.name),['指定語']);
+  assert.equal(rows[1].tags.length,0);
+  assert.equal(tools.annotate([c('question','本当ですか？?')])[0].tags.length,0);
+  assert.ok(!tools.TAG_NAMES.includes('疑問表現'));
+  assert.equal(rows[2].tags[0].name,'絵文字のみ');
+  assert.equal(rows[3].tags[0].name,'URLあり');
   assert.equal(JSON.stringify(cs),before);
-  assert.ok(rows[0].labels.every(label=>label.reason));
-  assert.ok(tools.annotate(cs,{enabled:false}).every(row=>row.labels.length===0));
+  assert.ok(rows[0].tags.every(tag=>tag.reason));
+  assert.ok(tools.annotate(cs,{enabled:false}).every(row=>row.tags.length===0));
 });
 test('repetition is per user and frequency uses real posting times, never batch arrival',()=>{
   const cs=Array.from({length:8},(_,i)=>c(String(i),'same',-i*10000));
   const rows=tools.annotate(cs,undefined,{rateCount:8,rateWindowSec:120});
-  assert.ok(rows.every(row=>row.labels.some(label=>label.name==='同文反復')));
-  assert.ok(rows.every(row=>row.labels.some(label=>label.name==='高頻度投稿')));
+  assert.ok(rows.every(row=>row.tags.some(tag=>tag.name==='同文反復')));
+  assert.ok(rows.every(row=>row.tags.some(tag=>tag.name==='高頻度投稿')));
   const unreliable=tools.annotate(cs.map(c=>({...c,timestampReliable:false})));
-  assert.ok(unreliable.every(row=>!row.labels.some(label=>label.name==='高頻度投稿')));
+  assert.ok(unreliable.every(row=>!row.tags.some(tag=>tag.name==='高頻度投稿')));
   const isolated=tools.annotate(cs.map((c,i)=>({...c,userId:String(i)})));
-  assert.ok(isolated.every(row=>row.labels.length===0));
+  assert.ok(isolated.every(row=>row.tags.length===0));
 });
-test('comment search returns only matching comments from a user and supports label, page, mute and ordering',()=>{
+test('comment search returns only matching comments from a user and supports tag, page, mute and ordering',()=>{
   const rows=tools.annotate([c('a','XX',-2000),c('b','unrelated',-1000),c('c','ｘｘ？',0,'b',{pageUrl:'channel'})]);
   assert.deepEqual(Array.from(tools.filterRows(rows,{query:'xx'}),x=>x.comment.id),['c','a']);
   assert.deepEqual(Array.from(tools.filterRows(rows,{query:'xx',order:'oldest'}),x=>x.comment.id),['a','c']);
   assert.equal(tools.filterRows(rows,{query:'xx',hideMuted:true,mutedUsers:['a']}).length,1);
-  assert.equal(tools.filterRows(rows,{channel:'channel',label:'疑問表現'}).length,1);
+  assert.equal(tools.filterRows(rows,{channel:'channel'}).length,1);
   assert.equal(tools.filterRows(rows,{query:'a',target:'user'}).length,2);
 });
-test('rule validation rejects malformed backups and duplicate/reserved labels',()=>{
+test('rule validation rejects malformed backups and duplicate/reserved tags',()=>{
   assert.equal(tools.parseRules('災害: 地震, 津波')[0].keywords.length,2);
-  for(const value of [null,[],{rules:[null]},{rules:[{label:'x',keywords:[42]}]},
-    {rules:[{label:'URLあり',keywords:['x']}]},{enabled:'yes'},
-    {rules:[{label:'x',keywords:['a']},{label:'x',keywords:['b']}]}]) {
-    assert.throws(()=>tools.normalizeLabelSettings(value));
+  for(const value of [null,[],{rules:[null]},{rules:[{tag:'x',keywords:[42]}]},
+    {rules:[{tag:'URLあり',keywords:['x']}]},{rules:[{tag:'a,b',keywords:['x']}]},{enabled:'yes'},
+    {rules:[{tag:'x',keywords:['a']},{tag:'x',keywords:['b']}]}]) {
+    assert.throws(()=>tools.normalizeTagSettings(value));
   }
   assert.throws(()=>tools.parseRules('invalid rule'));
 });
@@ -75,6 +77,6 @@ test('replay uses timestamps for speed, seeking, next, tied timestamps and end s
   replay.next();assert.equal(replay.visible().count,3);
   replay.advance(1000);assert.equal(replay.playing,false);
   replay.seek(now-1000);assert.equal(replay.position,now);
-  rows.push({comment:c('new','new',20000),labels:[]});assert.equal(replay.rows.length,3);
+  rows.push({comment:c('new','new',20000),tags:[]});assert.equal(replay.rows.length,3);
   replay.reset([]);assert.equal(replay.visible().count,0);
 });

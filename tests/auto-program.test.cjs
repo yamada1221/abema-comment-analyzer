@@ -79,6 +79,7 @@ function harness({ capture = true, initialTabs = [], settings = {}, readState } 
     }
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../auto-program-schedules.js'), 'utf8'), context);
+  for (const file of ['user-tags.js', 'comment-tools.js', 'auto-user-tags.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context);
   vm.runInContext(source, context, { filename: 'background.js' });
   const send = message => new Promise((resolve, reject) => {
     const listener = messages[0];
