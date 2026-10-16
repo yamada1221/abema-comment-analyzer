@@ -520,3 +520,17 @@ test('emoji settings default off and round-trip with exclusions and existing set
     assert.equal(store.state.moderationSettings.emojiCount,4);
   }finally{page.close();}
 });
+
+test('changing emoji thresholds invalidates queued mute decisions before storage is changed',async()=>{
+  const store=fixture(),page=await dashboard(store);
+  try {
+    await store.local.set({moderationSettings:{enabled:true,emojiEnabled:true,emojiCount:5,emojiWindowSec:120}});
+    const command={type:'APPLY_AUTO_MUTE',entries:[{userId:'target',rule:'emoji',reason:'絵文字のみ 3件/120秒',
+      evidence:{count:3,windowSec:120}}]};
+    const before=JSON.stringify(store.state.mutedUsers);
+    assert.equal((await page.w.ABEMAModerationStore.apply(command)).count,0);
+    assert.equal(JSON.stringify(store.state.mutedUsers),before);
+    await store.local.set({moderationSettings:{enabled:true,emojiEnabled:true,emojiCount:3,emojiWindowSec:60}});
+    assert.equal((await page.w.ABEMAModerationStore.apply(command)).count,0);
+  }finally{page.close();}
+});

@@ -78,3 +78,5 @@ mark{background:#eac965;color:#201900;border-radius:2px}
 #userSearch{max-width:100%;width:240px}
 .summary{margin-top:16px}
 @media(max-width:600px){.explorer-controls .query-field{grid-column:1/-1}#userSearch{width:100%}.comment-heading{align-items:flex-start}.comment-heading time{flex-basis:100%}.comment-results{max-height:480px}.section-nav{gap:4px 14px}}
+
+@media(max-width:600px){.explorer-controls{grid-template-columns:repeat(2,minmax(0,1fr))}.explorer-controls .check-label{grid-column:1/-1}}

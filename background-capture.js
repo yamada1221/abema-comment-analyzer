@@ -5,6 +5,15 @@
   async function setup() {
     if (!await chrome.alarms.get(alarmName)) await chrome.alarms.create(alarmName, { periodInMinutes: 1 });
   }
+  async function ping(tabId) {
+    let timer;
+    try {
+      return await Promise.race([
+        chrome.tabs.sendMessage(tabId, { source, type: 'CAPTURE_HEARTBEAT' }).catch(() => null),
+        new Promise(resolve => { timer = setTimeout(() => resolve(null), 5000); })
+      ]);
+    } finally { clearTimeout(timer); }
+  }
   function reconcile() {
     queue = queue.catch(() => {}).then(async () => {
       const { captureEnabled } = await chrome.storage.local.get('captureEnabled');
@@ -32,10 +41,7 @@
         }
       }
       await chrome.storage.session.set({ captureProtectedTabs: protectedTabs });
-      const reports = captureEnabled === false ? [] : await Promise.all(targets.map(async tab => {
-        try { return await chrome.tabs.sendMessage(tab.id, { source, type: 'CAPTURE_HEARTBEAT' }); }
-        catch (_) { return null; }
-      }));
+      const reports = captureEnabled === false ? [] : await Promise.all(targets.map(tab => ping(tab.id)));
       await chrome.storage.local.set({ backgroundCaptureStatus: {
         updatedAt: Date.now(), enabled: captureEnabled !== false, tabs: targets.length,
         protectedTabs: captureEnabled === false ? 0 : targets.filter(tab => tab.autoDiscardable === false || Object.hasOwn(protectedTabs,tab.id)).length,

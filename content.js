@@ -35,6 +35,7 @@
   let mutedUsersCache = new Set();
   let whitelistCache = new Set();
   const userActivity = new Map();
+  const lastNonEmojiAt = new Map();
   let learningTimer = null;
   let learningRunning = false;
   let lastLearningRun = 0;
@@ -99,6 +100,9 @@
     const key = String(comment.id || JSON.stringify([uid, t, message]));
     if (list.some(item => item.key === key) || latest - t > maxWindowMs) return null;
     const normalized = normalizeMessage(message);
+    if (globalThis.ABEMACommentTools && !ABEMACommentTools.isEmojiOnly(message)) {
+      lastNonEmojiAt.set(uid, Math.max(t, lastNonEmojiAt.get(uid) || 0));
+    }
     list.push({ t, normalized, message, key });
     list.sort((a, b) => a.t - b.t);
     userActivity.set(uid, list.slice(-100));
@@ -127,7 +131,8 @@
       const emoji = ABEMACommentTools.emojiEvidence(list.map(item => ({
         id: item.key, message: item.message, createdAtMs: item.t
       })), moderation);
-      if (emoji && latest === t) return { reason: `絵文字のみ ${emoji.count}件/${emoji.windowSec}秒`, evidence: emoji, rule: 'emoji' };
+      const nonEmojiAt = lastNonEmojiAt.get(uid) || 0;
+      if (emoji && latest === t && latest - nonEmojiAt > emoji.windowSec * 1000) return { reason: `絵文字のみ ${emoji.count}件/${emoji.windowSec}秒`, evidence: emoji, rule: 'emoji' };
     }
     if (moderation.duplicateEnabled && normalized) {
       const windowMs = Math.max(1, Number(moderation.duplicateWindowSec || 60)) * 1000;
@@ -267,7 +272,7 @@
       if (moderation.learningEnabled && Date.now() - lastLearningRun > 12000) scheduleLearningAnalysis(3000);
     } catch (error) {
       if (!invalidateContext(error)) {
-        queue = batch.concat(queue);
+        if (captureEnabled) queue = batch.concat(queue);
         console.warn('[ABEMA Comment Analyzer] flush failed; will retry:', error);
       }
     } finally {
@@ -438,7 +443,7 @@
       if (area !== 'local') return;
       if (changes.captureEnabled) {
         captureEnabled = changes.captureEnabled.newValue !== false;
-        if (!captureEnabled) { queue = []; userActivity.clear(); }
+        if (!captureEnabled) { queue = []; userActivity.clear(); lastNonEmojiAt.clear(); }
       }
       if (changes.mutedUsers) {
         mutedUsersCache = new Set((changes.mutedUsers.newValue || []).map(String));
@@ -449,6 +454,7 @@
         moderation = { ...DEFAULT_MODERATION, ...(changes.moderationSettings.newValue || {}) };
         whitelistCache = new Set((moderation.whitelistUsers || []).map(String));
         userActivity.clear();
+        lastNonEmojiAt.clear();
         scheduleLearningAnalysis(500);
       }
       if (changes.learningMemory || changes.learningSelectedSamples) scheduleLearningAnalysis(500);

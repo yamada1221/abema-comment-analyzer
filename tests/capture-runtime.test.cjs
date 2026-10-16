@@ -17,6 +17,7 @@ async function harness(hidden=true) {
   return {document,writes,events,failNext:()=>fail=true,hold:()=>release=true,release:()=>{const fn=release;release=null;fn();},
     comment(id){events.message({source:window,data:{source:'abema-comment-analyzer',type:'COMMENT',payload:{id,userId:'u',message:id,createdAtMs:Date.now()}}});},
     disable(){changes.forEach(fn=>fn({captureEnabled:{newValue:false}},'local'));},
+    enable(){changes.forEach(fn=>fn({captureEnabled:{newValue:true}},'local'));},
     heartbeat:()=>new Promise(resolve=>messages[0]({source:'abema-comment-analyzer',type:'CAPTURE_HEARTBEAT'},{},resolve))};
 }
 test('a single hidden-tab arrival saves without waiting for a throttled interval',async()=>{
@@ -38,4 +39,9 @@ test('visibility and pagehide events flush small foreground queues',async()=>{
   assert.ok(h.writes.some(message=>message.comments.some(c=>c.id==='second')));
   h.document.hidden=false;h.comment('third');h.events.pagehide();await settle();
   assert.ok(h.writes.some(message=>message.comments.some(c=>c.id==='third')));
+});
+
+test('a write that fails after recording is stopped cannot resurrect its batch on restart',async()=>{
+  const h=await harness();h.hold();h.failNext();h.comment('a');await settle();h.disable();h.release();await settle();
+  h.enable();await h.heartbeat();assert.equal(h.writes.length,0);
 });

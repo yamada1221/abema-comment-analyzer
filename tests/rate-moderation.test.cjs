@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const now = Date.now()-1000;
 const source = fs.readFileSync(path.join(__dirname,'../content.js'),'utf8');
 function detector(options={}) {
-  const ctx=vm.createContext({moderation:{enabled:true,rateEnabled:true,rateCount:8,rateWindowSec:120,duplicateEnabled:false,duplicateWindowSec:60,ngEnabled:false,...options},userActivity:new Map(),whitelistCache:new Set(),mutedUsersCache:new Set()});
+  const ctx=vm.createContext({moderation:{enabled:true,rateEnabled:true,rateCount:8,rateWindowSec:120,duplicateEnabled:false,duplicateWindowSec:60,ngEnabled:false,...options},userActivity:new Map(),lastNonEmojiAt:new Map(),whitelistCache:new Set(),mutedUsersCache:new Set()});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../comment-tools.js'),'utf8'),ctx);
   vm.runInContext(source.slice(source.indexOf('  function normalizeMessage'),source.indexOf('  async function autoMute')),ctx);
   return c=>ctx.moderationReason(c);
@@ -76,4 +76,10 @@ test('emoji mute is opt-in and never counts historical arrival timestamps as a b
   const on=detector({rateEnabled:false,emojiEnabled:true,emojiCount:1});
   assert.equal(on(comment('unknown',0,{message:emoji,timestampReliable:false})),null);
   assert.match(on(comment('known',0,{message:emoji})).reason,/絵文字のみ 1件/);
+});
+
+test('an ordinary comment in the time window still prevents emoji-only mute after the activity cap',()=>{
+  const run=detector({rateEnabled:false,emojiEnabled:true,emojiCount:3,emojiWindowSec:120});
+  assert.equal(run(comment('ordinary',-119000)),null);
+  for(let i=0;i<110;i++)assert.equal(run(comment('emoji-'+i,-110000+i*1000,{message:emoji})),null);
 });
