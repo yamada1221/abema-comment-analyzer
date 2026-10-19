@@ -50,5 +50,5 @@ renderNetwork();
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   if (changes.comments || changes.captureEnabled || changes.backgroundCaptureStatus) render();
-  if (changes.networkCaptureStatus) renderNetwork();
+  if (changes.networkCaptureStatus || changes.captureEnabled) renderNetwork();
 });
