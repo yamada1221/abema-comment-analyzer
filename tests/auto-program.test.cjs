@@ -462,5 +462,5 @@ test('a fresh install opts out of recording, but upgrades keep the saved capture
   const legacy = harness({ capture: null, settings: { enabled: false } });
   legacy.install({ reason: 'update', previousVersion: '0.13.1' });
   await legacy.settle();
-  assert.equal('captureEnabled' in legacy.data, false);
+  assert.equal(legacy.data.captureEnabled, true);
 });
