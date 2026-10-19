@@ -168,7 +168,11 @@ function validateTransferData(data) {
     if (Object.hasOwn(value, key)) check(valid(value[key]), `${prefix}.${key}`);
   };
   const comment = value => object(value) && id(value.userId) && typeof value.message === 'string' &&
-    ['createdAtMs', 'observedAt'].every(key => !Object.hasOwn(value, key) || time(value[key]));
+    ['createdAtMs', 'observedAt'].every(key => !Object.hasOwn(value, key) || time(value[key])) &&
+    ['pageUrl', 'pageTitle'].every(key => !Object.hasOwn(value, key) || typeof value[key] === 'string') &&
+    ['id', 'commentId'].every(key => !Object.hasOwn(value, key) ||
+      typeof value[key] === 'string' || (typeof value[key] === 'number' && Number.isFinite(value[key]))) &&
+    ['timestampReliable', 'isOwner'].every(key => !Object.hasOwn(value, key) || typeof value[key] === 'boolean');
   check(object(data), 'data');
   if (Object.hasOwn(data, 'autoTagSettings')) ABEMACommentTools.normalizeTagSettings(data.autoTagSettings);
   if (Object.hasOwn(data, 'autoLabelSettings')) ABEMACommentTools.migrateLabelSettings(data.autoLabelSettings);

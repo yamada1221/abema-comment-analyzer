@@ -716,3 +716,52 @@ test('transfer rechecks destination schema after confirmation and preserves newe
     assert.equal(page.el('transferFile').value, '');
   } finally { page.close(); }
 });
+
+
+test('invalid comment metadata is rejected before confirmation or storage changes', async () => {
+  const store = fixture(), page = await dashboard(store);
+  store.listeners.length = 0;
+  let confirmations = 0;
+  page.w.confirm = () => { confirmations++; return true; };
+  const before = clone(store.state);
+  try {
+    for (const metadata of [
+      { pageUrl: 123 }, { pageUrl: ['https://abema.tv/'] }, { pageTitle: {} },
+      { id: {} }, { commentId: [] }, { timestampReliable: 'false' }, { isOwner: 'false' }
+    ]) {
+      await page.w.importTransferFile({ text: async () => JSON.stringify({
+        format: 'abema-comment-analyzer-transfer', schemaVersion: 6,
+        data: { mutedUsers: [], userTags: {}, comments: [{
+          userId: 'imported', message: 'bad metadata', createdAtMs: Date.now(), ...metadata
+        }] }
+      }) });
+      assert.match(page.el('transferStatus').textContent, /引継ぎに失敗/, JSON.stringify(metadata));
+      assert.deepEqual(store.state, before, JSON.stringify(metadata));
+    }
+    assert.equal(confirmations, 0);
+  } finally { page.close(); }
+});
+
+test('valid comment metadata and legacy minimal comments round-trip without being dropped', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    const now = Date.now();
+    const comments = [
+      { userId: 'legacy', message: 'minimal', createdAtMs: now - 1 },
+      { id: 42, commentId: 'chat-id', userId: 123, message: '<b>literal text</b>',
+        createdAtMs: now, observedAt: now, pageUrl: 'https://abema.tv/now-on-air/abema-news',
+        pageTitle: '番組タイトル', timestampReliable: false, isOwner: false }
+    ];
+    await page.w.importTransferFile({ text: async () => JSON.stringify({
+      format: 'abema-comment-analyzer-transfer', schemaVersion: 6, data: { comments }
+    }) });
+    assert.match(page.el('transferStatus').textContent, /引継ぎ完了/);
+    assert.equal(page.el('total').textContent, '2');
+    assert.equal(page.el('commentChannel').options[1].value, comments[1].pageUrl);
+    let exported;
+    page.w.download = (_name, text) => { exported = JSON.parse(text); };
+    await page.w.exportTransfer();
+    assert.deepEqual(exported.data.comments, comments);
+    assert.doesNotMatch(page.el('commentResults').innerHTML, /<b>literal text<\/b>/);
+  } finally { page.close(); }
+});

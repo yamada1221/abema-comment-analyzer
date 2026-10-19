@@ -21,6 +21,8 @@ test('a real Chrome backup import needs consent before restoring recording', {ti
       comments: [{ id:'original',userId:'old',message:'keep',createdAtMs:Date.now() }]
     }));
     const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
     await page.goto('chrome-extension://' + id + '/dashboard.html');
     await page.waitForFunction(() => document.getElementById('total').textContent === '1');
 
@@ -32,6 +34,24 @@ test('a real Chrome backup import needs consent before restoring recording', {ti
         { id:'imported',userId:'new',message:'data',createdAtMs:Date.now() }
       ] }
     };
+    const protectedKeys = ['comments', 'captureEnabled', 'userTags', 'mutedUsers',
+      'moderationSettings', 'autoProgramSettings', 'lastTransferImportAt'];
+    const before = await worker.evaluate(keys => chrome.storage.local.get(keys), protectedKeys);
+    let unexpectedPrompts = 0;
+    const dismissUnexpected = dialog => { unexpectedPrompts++; return dialog.dismiss(); };
+    page.on('dialog', dismissUnexpected);
+    for (const metadata of [{pageUrl:123}, {pageTitle:{}}, {id:[]}, {timestampReliable:'false'}]) {
+      const invalid = { ...data, data: { ...data.data, mutedUsers: [], userTags: {},
+        comments: [{ ...data.data.comments[0], ...metadata }] } };
+      await page.evaluate(() => { document.getElementById('transferStatus').textContent = ''; });
+      await page.locator('#transferFile').setInputFiles({ name:'invalid.json', mimeType:'application/json',
+        buffer:Buffer.from(JSON.stringify(invalid),'utf8') });
+      await page.waitForFunction(() =>
+        document.getElementById('transferStatus').textContent.includes('引継ぎに失敗'));
+      assert.deepEqual(await worker.evaluate(keys => chrome.storage.local.get(keys), protectedKeys), before);
+    }
+    page.off('dialog', dismissUnexpected);
+    assert.equal(unexpectedPrompts, 0);
     const upload = { name:'backup.json', mimeType:'application/json',
       buffer:Buffer.from(JSON.stringify(data),'utf8') };
     let prompt = '';
@@ -53,6 +73,7 @@ test('a real Chrome backup import needs consent before restoring recording', {ti
       s.captureEnabled === true && s.comments?.[0]?.id === 'imported');
     state=await worker.evaluate(() => chrome.storage.local.get(['captureEnabled','comments']));
     assert.equal(state.comments[0].id,'imported');
+    assert.deepEqual(errors, []);
   } finally {
     await context.close();
   }
