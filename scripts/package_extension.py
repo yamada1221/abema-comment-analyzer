@@ -122,7 +122,7 @@ def checked_output(output: Path) -> Path:
     if dist.is_symlink() or dist.resolve() != root_resolved / "dist":
         raise ValueError("Unsafe dist directory")
     if output.suffix.lower() != ".zip" or output.name in (".", ".."):
-        raise ValueError("Review output must be a .zip file")
+        raise ValueError("Review ZIP output must have a .zip extension")
     # Require a direct child of dist, not just a matching prefix or traversal.
     if output.parent.resolve() != dist.resolve() or output.is_symlink():
         raise ValueError("Review ZIP must be a non-symlink file directly in dist/")
