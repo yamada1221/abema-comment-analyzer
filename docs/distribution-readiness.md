@@ -10,7 +10,7 @@
 - `privacy.html`: 取り扱うデータ、保存先、権限、削除・出力に関する説明。
 - `tests/auto-program.test.cjs`: 新規インストールが停止状態になること、アップデート時には記録設定を上書きしないことの回帰テストを追加。
 
-**自動テスト実行結果（2026-10-19）**: GitHub Actionsで単体141件・Playwright模擬ブラウザ11件に成功（[検証ログ](https://github.com/yamada1221/abema-comment-analyzer/actions/runs/39240880446)）。本番ABEMA画面での動作確認はクラウド環境の地域制限で未実施。
+**自動テスト実行結果（2026-10-19）**: GitHub Actionsで単体142件・Playwright模擬ブラウザ11件・ZIP生成用Pythonテスト11件の計164件に成功（[検証ログ](https://github.com/yamada1221/abema-comment-analyzer/actions/runs/39244404946)）。本番ABEMA画面での動作確認はクラウド環境の地域制限で未実施。
 
 ### 記録停止時の最小化
 
@@ -51,7 +51,7 @@ npm run test:browser
 
 ## Chromeウェブストア向けZIPの事前検査（未公開）
 
-`scripts/package_extension.py` を追加し、拡張機能の実行に必要な21ファイルだけを明示的な許可リストから検証・梱包するようにした。 `node_modules/`、`tests/`、`docs/`、`.github/`、開発メモ、引継ぎファイル等はパッケージに含めない。未公開段階で誤配布しないため、CIでは**検査のみ**行い、ZIPをアップロードしない。
+`scripts/package_extension.py` を追加し、拡張機能の実行に必要な21ファイルだけを明示的な許可リストから検証・梱包するようにした。 `node_modules/`、`tests/`、`docs/`、`.github/`、開発メモ、引継ぎファイル等はパッケージに含めない。未公開段階で誤配布しないため、CIではパッケージ構成の検査と一時ディレクトリ内のZIP生成・整合性テストのみ実行し、ZIPをユーザー向け成果物としてアップロードしない。Zip内容の再現性、出力先の安全性、想定外の権限、外部実行コードの参照を検証する。
 
 ```sh
 python3 scripts/package_extension.py --check
@@ -60,6 +60,12 @@ python3 scripts/package_extension.py
 ```
 
 生成先（ローカル）: `dist/abema-comment-analyzer-v0.13.1-review.zip`（manifestのバージョンに追従）。 `dist/` はGitに登録しない。実際にChromeウェブストアへ出すには、別途権利・規約・問い合わせ先・プライバシーポリシー公開URL・審査用画像などが必要。
+
+## ストア掲載準備
+
+- [未公開の掲載文案・プライバシー申告下書き](chrome-store-listing-draft.md)を追加。実装済みのコメント検索・タグ・リプレイ・ミュートに限定して説明する。
+- 現状はChromeウェブストア用128×128アイコンと審査用画像、公開プライバシーポリシーURL、問い合わせ先が未用意。これらを揃える前に公開申請しない。
+- 申請前に既存ユーザーデータが維持される更新テストを確認する。CIでは記録OFFの維持とコメント・タグ・ミュート・番組設定の保持を検証しているが、実機での移行検証も必要。
 
 ## ABEMAへの問い合わせ準備
 
