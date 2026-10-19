@@ -48,14 +48,17 @@ class LocalReferences(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.references: set[str] = set()
+        self.executable_references: set[str] = set()
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
         if tag == "script" and values.get("src"):
             self.references.add(values["src"])
-        if tag == "link" and values.get("rel", "").lower() == "stylesheet":
+            self.executable_references.add(values["src"])
+        if tag == "link" and "stylesheet" in values.get("rel", "").lower().split():
             if values.get("href"):
                 self.references.add(values["href"])
+                self.executable_references.add(values["href"])
         if tag == "a" and values.get("href"):
             self.references.add(values["href"])
 
@@ -76,6 +79,10 @@ def required_files(manifest: dict) -> set[str]:
     for page in HTML_FILES:
         parser = LocalReferences()
         parser.feed((ROOT / page).read_text(encoding="utf-8"))
+        for reference in parser.executable_references:
+            parsed = urlsplit(reference)
+            if parsed.scheme or parsed.netloc or reference.startswith(("//", "#")) or not parsed.path:
+                raise ValueError(f"External or invalid executable reference in {page}: {reference}")
         for reference in parser.references:
             parsed = urlsplit(reference)
             if parsed.scheme or parsed.netloc or reference.startswith(("#", "//")):
