@@ -50,7 +50,7 @@ async function dashboard(store) {
   w.HTMLCanvasElement.prototype.getContext = () => ({ clearRect() {}, fillRect() {}, fillText() {} });
   w.HTMLElement.prototype.scrollIntoView = () => {};
   w.confirm = () => true;
-  for (const file of ['user-tags.js', 'learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'comment-tools.js', 'auto-user-tags.js', 'dashboard-explorer.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
+  for (const file of ['user-tags.js', 'learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'comment-tools.js', 'auto-user-tags.js', 'dashboard-explorer.js', 'csv-export.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
   await settle();
   assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.11.0 / 保存形式 6');
   assert.doesNotMatch(w.document.getElementById('transferStatus').textContent, /失敗/);
@@ -179,7 +179,7 @@ test('upgrade, edit, filter, refresh, export and expiry preserve user data', asy
     el('exportJson').onclick();
     assert.deepEqual(JSON.parse(downloads.at(-1).text).find(c => c.userId === 'user-a').userTags, ['要観察', '定型文']);
     el('exportCsv').onclick();
-    assert.match(downloads.at(-1).text, /^time,userId,message,pageTitle,userTags/);
+    assert.match(downloads.at(-1).text, /^\uFEFFtime,userId,message,pageTitle,userTags/);
     await w.exportTransfer();
     const payload = JSON.parse(downloads.at(-1).text);
     assert.equal(payload.schemaVersion, 6);
