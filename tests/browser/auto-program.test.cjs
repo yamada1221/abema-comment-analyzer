@@ -271,3 +271,29 @@ test('confirmed backups keep their recording preference when stopping an active 
     }
   } finally { await app.context.close(); }
 });
+
+test('popup recording stop overrides automatic polls and leaves the viewing tab open', { timeout: 60000 }, async () => {
+  const app = await extension();
+  try {
+    await start(app);
+    const popup = await app.context.newPage();
+    await popup.goto(app.dashboard.url().replace('dashboard.html', 'popup.html'));
+    await popup.waitForFunction(() => document.getElementById('toggle').textContent === '記録を停止');
+    await popup.locator('#toggle').click();
+    await waitForStorage(app.worker, ['captureEnabled', 'autoProgramSession'], state =>
+      state.captureEnabled === false && state.autoProgramSession === null);
+    await popup.waitForFunction(() => document.getElementById('captureStatus').textContent === '記録を停止しました。');
+    let result = await app.dashboard.evaluate(source => chrome.runtime.sendMessage({ source, type: 'AUTO_PROGRAM_TICK_NOW' }), SOURCE);
+    assert.equal(result.ok, true);
+    assert.equal((await app.worker.evaluate(() => chrome.storage.local.get('captureEnabled'))).captureEnabled, false);
+    assert.equal((await app.worker.evaluate(() => chrome.tabs.query({ url: 'https://abema.tv/*' }))).length, 1);
+    await popup.locator('#toggle').click();
+    await waitForStorage(app.worker, 'captureEnabled', state => state.captureEnabled === true);
+    result = await app.dashboard.evaluate(source => chrome.runtime.sendMessage({ source, type: 'AUTO_PROGRAM_TICK_NOW' }), SOURCE);
+    assert.equal(result.ok, true);
+    const state = await app.worker.evaluate(() => chrome.storage.local.get(['captureEnabled', 'autoProgramSession', 'autoProgramSettings']));
+    assert.equal(state.captureEnabled, true);
+    assert.equal(state.autoProgramSession, null);
+    assert.equal(state.autoProgramSettings.enabled, true);
+  } finally { await app.context.close(); }
+});

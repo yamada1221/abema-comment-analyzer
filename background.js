@@ -84,6 +84,32 @@ function stopAutoProgram() {
   });
 }
 
+
+function setManualCapture(enabled) {
+  if (typeof enabled !== 'boolean') return Promise.reject(new Error('記録設定が正しくありません。'));
+  // Invalidate any pending detection before it can undo a manual choice.
+  autoProgramRevision += 1;
+  return queueAutoProgram(async () => {
+    const settings = await getSettings();
+    const { autoProgramSession } = await chrome.storage.local.get('autoProgramSession');
+    const keys = ABEMAAutoPrograms.windows(new Date(), settings).map(program => program.windowKey);
+    const message = enabled ? '手動でコメント記録を開始しました。' : '手動でコメント記録を停止しました。';
+    if (autoProgramSession) {
+      // Manual control takes over the open page; leave it available for viewing.
+      await finishSession(settings, {
+        ...autoProgramSession, ownedTab: false,
+        previousCaptureHadValue: true, previousCaptureEnabled: enabled,
+        windowKeys: [...new Set([...sessionWindowKeys(autoProgramSession), ...keys])]
+      }, message, true);
+    } else {
+      await completeWindows(keys);
+      await setStatus('stopped', { message });
+    }
+    await chrome.storage.local.set({ captureEnabled: enabled });
+    return { ok: true, enabled };
+  });
+}
+
 function sessionWindowKeys(session) {
   return session?.windowKeys || (session?.windowKey ? [session.windowKey] : []);
 }
@@ -496,6 +522,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || message.source !== SOURCE) return;
+  if (message.type === 'SET_CAPTURE_ENABLED') {
+    setManualCapture(message.enabled).then(sendResponse)
+      .catch(error => sendResponse({ ok: false, error: String(error.message || error) }));
+    return true;
+  }
   if (message.type === 'APPEND_CAPTURED_COMMENTS') {
     appendCapturedComments(message.comments).then(sendResponse)
       .catch(error => sendResponse({ ok: false, error: String(error.message || error) }));

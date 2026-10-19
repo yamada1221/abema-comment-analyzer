@@ -14,7 +14,9 @@ body{font-family:system-ui,sans-serif;width:320px;margin:0;padding:16px;backgrou
 <div class="stat"><div class="card"><div class="n" id="count">0</div><div class="label">保存中のコメント</div></div><div class="card"><div class="n" id="users">0</div><div class="label">投稿者</div></div></div>
 <button id="open">分析画面を開く</button>
 <p id="captureDisclosure" style="font-size:12px;line-height:1.6;color:#ccc;margin:12px 0 6px">記録を開始すると、受信したコメント本文・投稿者ID・日時・ページ情報をこのChrome内に保存します。開発者への自動送信は行いません。</p>
-<button id="toggle" disabled>記録状態を確認中…</button><button id="clear">コメント履歴を削除</button>
+<button id="toggle" disabled>記録状態を確認中…</button>
+<p id="captureStatus" role="status" aria-live="polite" style="font-size:12px"></p>
+<button id="clear">コメント履歴を削除</button>
 <div id="clearConfirm" hidden role="group" aria-label="コメント履歴の削除確認" style="border:1px solid #765;padding:10px;margin-top:8px;border-radius:8px">
   <p style="font-size:12px;line-height:1.6;margin:0">保存済みのコメント履歴を削除します。この操作は取り消せません。タグ・ミュート・学習用データ・番組設定は残ります。記録ONの場合は新しいコメントを引き続き保存します。</p>
   <button id="confirmClear" style="background:#744;color:#fff">履歴だけ削除する</button>

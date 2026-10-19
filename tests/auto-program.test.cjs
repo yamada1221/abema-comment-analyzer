@@ -92,6 +92,7 @@ function harness({ capture = true, initialTabs = [], settings = {}, readState } 
     install: details => installed.forEach(callback => callback(details)),
     tick: options => context.tickAutoProgram(options),
     stop: () => send({ type: 'AUTO_PROGRAM_STOP_NOW' }),
+    setCapture: enabled => send({ type: 'SET_CAPTURE_ENABLED', enabled }),
     saveSettings: () => send({ type: 'AUTO_PROGRAM_SETTINGS_SAVED' }),
     setTime: value => { now = value.getTime(); },
     async settle() { await nextTurn(); await context.tickAutoProgram(); }
@@ -537,4 +538,56 @@ test('partial imports do not restart a manually completed automatic window', asy
   assert.equal(h.created.length, created);
   assert.equal(h.data.captureEnabled, false);
   assert.equal(h.data.autoProgramSession, null);
+});
+
+test('manual recording stop stays OFF on the next automatic poll', async () => {
+  const h = harness({ capture: false });
+  await h.tick();
+  assert.equal(h.data.captureEnabled, true);
+  assert.equal((await h.setCapture(false)).ok, true);
+  await h.tick();
+  assert.equal(h.data.captureEnabled, false);
+});
+
+test('manual stop before polling blocks only the current window and keeps settings intact', async () => {
+  const h = harness({ capture: false });
+  const settings = structuredClone(h.data.autoProgramSettings);
+  await h.setCapture(false);
+  await h.tick();
+  assert.equal(h.created.length, 0);
+  assert.equal(h.data.captureEnabled, false);
+  assert.deepEqual(h.data.autoProgramSettings, settings);
+  h.setTime(new Date(2026, 9, 7, 0, 30));
+  await h.tick();
+  assert.equal(h.data.captureEnabled, true);
+  assert.equal(h.created.length, 1);
+});
+
+test('manual stop during detection cannot be undone by a delayed response and leaves the page open', async () => {
+  const waiting = deferred(), response = deferred();
+  const h = harness({ capture: false, readState: async state => { waiting.resolve(); await response.promise; return state; } });
+  const tick = h.tick();
+  await waiting.promise;
+  const stop = h.setCapture(false);
+  response.resolve();
+  await Promise.all([tick, stop]);
+  await h.tick();
+  assert.equal(h.data.captureEnabled, false);
+  assert.equal(h.data.autoProgramSession, null);
+  assert.equal(h.tabs.size, 1);
+  assert.equal(h.removed.length, 0);
+  assert.equal(h.panelRequests.length, 0);
+});
+
+test('manual start takes over a waiting automatic session without closing its page', async () => {
+  const h = harness({ capture: false, readState: state => ({ ...state, matched: false }) });
+  await h.tick();
+  assert.equal(h.data.captureEnabled, false);
+  assert.equal(h.data.autoProgramSession.active, false);
+  assert.equal((await h.setCapture(true)).ok, true);
+  await h.tick();
+  assert.equal(h.data.captureEnabled, true);
+  assert.equal(h.data.autoProgramSession, null);
+  assert.equal(h.tabs.size, 1);
+  assert.equal(h.created.length, 1);
 });
