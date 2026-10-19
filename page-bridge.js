@@ -83,8 +83,10 @@
     const message = comment.message.trim();
     if (!message) return;
     const candidates = [];
+    // Prefer an individual comment row over its parent list. Hiding the parent
+    // can accidentally hide unrelated users' comments alongside a muted one.
+    root?.querySelectorAll?.('li, [role="listitem"]').forEach(el => candidates.push(el));
     if (root instanceof HTMLElement) candidates.push(root);
-    root?.querySelectorAll?.('li, [role="listitem"]').forEach((el) => candidates.push(el));
     for (const element of candidates.slice(0, 120)) {
       const text = getText(element);
       if (!text || text.length > message.length + 160 || !text.includes(message)) continue;
