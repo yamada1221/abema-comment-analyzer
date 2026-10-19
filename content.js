@@ -243,6 +243,7 @@
     try {
       const data = await chrome.storage.local.get(['mutedUsers', 'moderationSettings', 'captureEnabled']);
       captureEnabled = data.captureEnabled === true;
+      postToPage('SET_CAPTURE_ENABLED', { enabled: captureEnabled });
       mutedUsersCache = new Set((data.mutedUsers || []).map(String));
       moderation = { ...DEFAULT_MODERATION, ...(data.moderationSettings || {}) };
       whitelistCache = new Set((moderation.whitelistUsers || []).map(String));
@@ -443,6 +444,7 @@
       if (area !== 'local') return;
       if (changes.captureEnabled) {
         captureEnabled = changes.captureEnabled.newValue === true;
+        postToPage('SET_CAPTURE_ENABLED', { enabled: captureEnabled });
         if (!captureEnabled) { queue = []; userActivity.clear(); lastNonEmojiAt.clear(); }
       }
       if (changes.mutedUsers) {
