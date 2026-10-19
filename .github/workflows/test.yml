@@ -20,12 +20,17 @@ jobs:
           cache: npm
       - run: python3 scripts/package_extension.py --check
       - run: python3 -m unittest discover -s tests -p 'test_package_*.py' -v
+      - name: Build and extract local review ZIP (never upload)
+        run: |
+          python3 scripts/package_extension.py
+          python3 -c "from pathlib import Path; from zipfile import ZipFile; p=next(Path('dist').glob('*-review.zip')); ZipFile(p).extractall('dist/review-unpacked')"
       - run: npm ci
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
         env:
           ABEMA_SCREENSHOT_DIR: test-results/screenshots
+          ABEMA_PACKAGE_SMOKE_DIR: dist/review-unpacked
       - name: Save mock-screen verification screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
