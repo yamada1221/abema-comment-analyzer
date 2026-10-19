@@ -179,7 +179,8 @@ function validateTransferData(data) {
     value.length <= 100000 && value.every(comment), 'data');
   for (const key of ['mutedUsers', 'learningAutoMutedUsers']) optional(data, key, ids, 'data');
   optional(data, 'captureEnabled', value => typeof value === 'boolean', 'data');
-  optional(data, 'analysisWindowMinutes', value => Number.isFinite(value) && value > 0, 'data');
+  optional(data, 'analysisWindowMinutes', value =>
+    Number.isFinite(value) && value >= 1 && value <= MAX_WINDOW_MINUTES, 'data');
   optional(data, 'lastCommentAt', value => value === null || time(value), 'data');
   optional(data, 'autoMuteLog', value => Array.isArray(value) && value.every(entry =>
     object(entry) && id(entry.userId) && typeof entry.reason === 'string' &&
@@ -187,18 +188,36 @@ function validateTransferData(data) {
   if (Object.hasOwn(data, 'moderationSettings')) {
     const settings = data.moderationSettings;
     check(object(settings), 'moderationSettings');
+    // Settings imported from a file bypass the dashboard's input clamps.
+    // Reject negative, unbounded and out-of-range values before any write.
+    const countKeys = new Set(['emojiCount', 'rateCount', 'duplicateCount',
+      'learningMinComments', 'learningMinMutedUsers', 'learningMaxCommentsPerUser']);
+    const secondsKeys = new Set(['emojiWindowSec', 'rateWindowSec', 'duplicateWindowSec']);
+    const thresholdKeys = new Set(['learningCandidateThreshold', 'learningSelectedMatchThreshold',
+      'learningAutoMuteThreshold', 'learningNormalPenalty']);
     for (const [key, fallback] of Object.entries(DEFAULT_MODERATION)) {
-      optional(settings, key, Array.isArray(fallback) ? strings :
-        typeof fallback === 'number' ? Number.isFinite : value => typeof value === typeof fallback,
-      'moderationSettings');
+      let validator;
+      if (Array.isArray(fallback)) validator = strings;
+      else if (typeof fallback === 'number') {
+        validator = value => Number.isFinite(value) && (
+          countKeys.has(key) ? value >= (key === 'rateCount' || key === 'duplicateCount' ||
+            key === 'learningMinComments' ? 2 : 1) && value <= 100000 :
+          secondsKeys.has(key) ? value >= 1 && value <= 86400 :
+          thresholdKeys.has(key) ? value >= 0 && value <= 1 :
+          value >= 0 && value <= 100000
+        );
+      } else validator = value => typeof value === typeof fallback;
+      optional(settings, key, validator, 'moderationSettings');
     }
   }
   if (Object.hasOwn(data, 'autoProgramSettings')) {
     const settings = data.autoProgramSettings;
     check(object(settings), 'autoProgramSettings');
     for (const [key, fallback] of Object.entries(DEFAULT_AUTO_PROGRAM)) {
-      if (key !== 'days') optional(settings, key, typeof fallback === 'number' ? Number.isFinite :
-        value => typeof value === typeof fallback, 'autoProgramSettings');
+      if (key !== 'days') optional(settings, key,
+        typeof fallback === 'number' ? value => Number.isInteger(value) &&
+          value >= 1 && value <= 1000 :
+          value => typeof value === typeof fallback, 'autoProgramSettings');
     }
     optional(settings, 'days', value => Array.isArray(value) &&
       value.every(day => Number.isInteger(day) && day >= 0 && day <= 6), 'autoProgramSettings');
