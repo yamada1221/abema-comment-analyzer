@@ -632,3 +632,32 @@ test('oversized backup is rejected without even reading its contents', async () 
     assert.match(page.el('transferStatus').textContent, /256MB/);
   } finally { page.close(); }
 });
+
+
+test('backup import rejects more than 100,000 comments before touching existing data', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    const before = clone(store.state);
+    const comment = { userId: 'sample', message: 'stored comment', createdAtMs: Date.now() };
+    const payload = {
+      format: 'abema-comment-analyzer-transfer',
+      schemaVersion: 6,
+      extensionVersion: '0.13.1',
+      data: {
+        comments: Array(100001).fill(comment),
+        mutedUsers: ['should-not-import'],
+        captureEnabled: false
+      }
+    };
+    let prompted = false;
+    page.w.confirm = () => { prompted = true; return true; };
+    await page.w.importTransferFile({ text: async () => JSON.stringify(payload) });
+    assert.equal(prompted, false, 'invalid backup must never request consent for a write');
+    assert.match(page.el('transferStatus').textContent, /引継ぎに失敗/);
+    assert.deepEqual(store.state, before);
+
+    // Exactly at the 100k item retention limit, the shape itself is valid.
+    payload.data.comments.length = 100000;
+    assert.doesNotThrow(() => page.w.validateTransferData(payload.data));
+  } finally { page.close(); }
+});
