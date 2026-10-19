@@ -86,6 +86,30 @@ class ReviewZipTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unexpected host permission"):
             packager.validate()
 
+    def test_broader_permissions_and_content_site_are_rejected(self) -> None:
+        file = self.root / "manifest.json"
+        baseline = json.loads(file.read_text("utf-8"))
+        for field, value, error in (
+            ("permissions", baseline["permissions"] + ["history"], "Unexpected extension permission"),
+            ("optional_host_permissions", ["https://example.org/*"], "Unexpected extension permission"),
+            ("content_scripts", [
+                {**baseline["content_scripts"][0], "matches": ["<all_urls>"]},
+                *baseline["content_scripts"][1:]], "Unexpected content-script"),
+        ):
+            with self.subTest(field=field):
+                file.write_text(json.dumps({**baseline, field: value}), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, error):
+                    packager.validate()
+        file.write_text(json.dumps(baseline), encoding="utf-8")
+
+    def test_new_manifest_icon_must_be_explicitly_packaged(self) -> None:
+        file = self.root / "manifest.json"
+        manifest = json.loads(file.read_text("utf-8"))
+        manifest["icons"] = {"128": "brand-icon.png"}
+        file.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Referenced assets not in package"):
+            packager.validate()
+
     def test_symlinked_package_asset_is_rejected(self) -> None:
         asset = self.root / "popup.js"
         target = self.root / "other.js"
