@@ -241,7 +241,7 @@ async function importTransferFile(file) {
       recording ? '復元後、コメント記録がONになります。' : '',
       schedule ? '復元後、指定番組の自動起動・記録設定がONになります。' : '',
       '引継ぎデータを復元しますか？'
-    ].filter(Boolean).join('\\n');
+    ].filter(Boolean).join('\n');
     if (!window.confirm(effects)) {
       setTransferStatus('引継ぎをキャンセルしました。既存データは変更していません。');
       return;
