@@ -86,7 +86,16 @@ test('comment search, automatic user tags, replay and narrow layouts work as an 
 test('background capture protects tabs, saves received comments and supports reversible emoji mutes',async()=>{
   const {context,worker,id}=await extension();
   try {
-    await worker.evaluate(()=>chrome.storage.local.set({captureEnabled:true,moderationSettings:{enabled:true,
+    // Fresh installs intentionally start with capture disabled. Wait for install
+    // initialization, then exercise the actual user-facing opt-in control.
+    await waitForStorage(worker,'captureEnabled',s=>s.captureEnabled===false);
+    const popup=await context.newPage();
+    await popup.goto(`chrome-extension://${id}/popup.html`);
+    await popup.waitForFunction(()=>document.getElementById('toggle').textContent==='記録を開始');
+    await popup.locator('#toggle').click();
+    await waitForStorage(worker,'captureEnabled',s=>s.captureEnabled===true);
+    await popup.close();
+    await worker.evaluate(()=>chrome.storage.local.set({moderationSettings:{enabled:true,
       emojiEnabled:true,emojiCount:3,emojiWindowSec:120,rateEnabled:false,duplicateEnabled:false,ngEnabled:false,whitelistUsers:['allowed']}}));
     await context.route('https://abema.tv/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><title>模擬放送</title></head><body>Mock ABEMA</body></html>'}));
     const abema=await context.newPage();await abema.goto('https://abema.tv/now-on-air/abema-news');
