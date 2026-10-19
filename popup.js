@@ -10,7 +10,33 @@ async function render(){
 }
 $('open').onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL('dashboard.html')});
 $('toggle').onclick=async()=>{const d=await chrome.storage.local.get('captureEnabled');await chrome.storage.local.set({captureEnabled:d.captureEnabled!==true});render();};
-$('clear').onclick=async()=>{await navigator.locks.request('abema-comment-history',()=>chrome.storage.local.set({comments:[],lastCommentAt:null}));render();};
+// A data-destructive action must never be triggered by a single ambiguous click.
+// Only recorded comments are deleted; tags, mutes and schedule settings remain.
+let clearingHistory = false;
+$('clear').onclick=()=>{if(clearingHistory)return;$('clearConfirm').hidden=false;$('clearStatus').textContent='';};
+$('cancelClear').onclick=()=>{if(clearingHistory)return;$('clearConfirm').hidden=true;$('clearStatus').textContent='';};
+$('confirmClear').onclick=async()=>{
+  if(clearingHistory)return;
+  clearingHistory=true;
+  $('confirmClear').disabled=true;
+  $('cancelClear').disabled=true;
+  $('clear').disabled=true;
+  $('clearStatus').textContent='コメント履歴を削除しています…';
+  try{
+    await navigator.locks.request('abema-comment-history',()=>chrome.storage.local.set({comments:[],lastCommentAt:null}));
+    $('clearConfirm').hidden=true;
+    $('clearStatus').textContent='コメント履歴を削除しました。タグ・ミュート・設定は保持されています。';
+    await render();
+  }catch(error){
+    $('clearStatus').textContent='削除に失敗しました。再試行してください。';
+    console.warn('[ABEMA] Comment history deletion failed:',error);
+  }finally{
+    clearingHistory=false;
+    $('confirmClear').disabled=false;
+    $('cancelClear').disabled=false;
+    $('clear').disabled=false;
+  }
+};
 render();
 async function renderNetwork() {
   const { networkCaptureStatus: s, captureEnabled } = await chrome.storage.local.get(['networkCaptureStatus', 'captureEnabled']);
