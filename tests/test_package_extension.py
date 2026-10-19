@@ -67,6 +67,17 @@ class ReviewZipTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Referenced assets not in package"):
             packager.validate()
 
+    def test_remote_script_or_stylesheet_is_rejected(self) -> None:
+        for markup in ('<script src="https://cdn.example.org/tool.js"></script>',
+                       '<link rel="stylesheet" href="//cdn.example.org/style.css">'):
+            with self.subTest(markup=markup):
+                page = self.root / "guide.html"
+                original = (REPO / "guide.html").read_text("utf-8")
+                page.write_text(original.replace("</body>", markup + "</body>"), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "External or invalid executable reference"):
+                    packager.validate()
+                page.write_text(original, encoding="utf-8")
+
     def test_unexpected_host_permission_is_rejected(self) -> None:
         file = self.root / "manifest.json"
         manifest = json.loads(file.read_text("utf-8"))
