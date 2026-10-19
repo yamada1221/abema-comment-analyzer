@@ -51,7 +51,7 @@ npm run test:browser
 
 ## Chromeウェブストア向けZIPの事前検査（未公開）
 
-`scripts/package_extension.py` を追加し、拡張機能の実行に必要な25ファイル（拡張機能の21ファイル＋PNGアイコン4枚）だけを明示的な許可リストから検証・梱包するようにした。 `node_modules/`、`tests/`、`docs/`、`.github/`、開発メモ、引継ぎファイル等はパッケージに含めない。未公開段階で誤配布しないため、CIではパッケージ構成の検査と一時ディレクトリ内のZIP生成・整合性テストのみ実行し、ZIPをユーザー向け成果物としてアップロードしない。Zip内容の再現性、出力先の安全性、想定外の権限、外部実行コードの参照を検証する。
+`scripts/package_extension.py` を追加し、拡張機能の実行に必要な26ファイル（拡張機能の22ファイル＋PNGアイコン4枚）だけを明示的な許可リストから検証・梱包するようにした。 `node_modules/`、`tests/`、`docs/`、`.github/`、開発メモ、引継ぎファイル等はパッケージに含めない。未公開段階で誤配布しないため、CIではパッケージ構成の検査と一時ディレクトリ内のZIP生成・整合性テストのみ実行し、ZIPをユーザー向け成果物としてアップロードしない。Zip内容の再現性、出力先の安全性、想定外の権限、外部実行コードの参照を検証する。
 
 ```sh
 python3 scripts/package_extension.py --check
@@ -104,6 +104,14 @@ python3 scripts/package_extension.py
 - レビューZIPのファイル数を26件に更新し、必要なスクリプトのみ梱包する。
 - [GitHub Actions成功結果（コード変更時）](https://github.com/yamada1221/abema-comment-analyzer/actions/runs/39254242736)：Python 12件・Node.js 145件・模擬Chrome 14件、合計**171件成功／失敗0**。
 - 注：数式インジェクションの解釈は表計算ソフトやインポート操作に依存する。全ソフトでの安全性を保証するものではなく、開く側も出所不明のCSVには注意が必要。
+
+## 引継ぎファイルの確認と過大ファイル対策（2026-10-19）
+
+- `dashboard.js` の引継ぎ復元前に、保存済みデータが上書きされることを確認するダイアログを追加。バックアップ内で `captureEnabled:true` や `autoProgramSettings.enabled:true` が設定されている場合は、記録再開・番組自動起動の可能性を個別に明示する。
+- 確認をキャンセルした場合はストレージを更新せずに復元を終了する。ファイルサイズが256MiB（256×1024×1024バイト）を超えると復元を拒否し、読み込み前のサイズ確認を実施する。
+- `tests/dashboard-tags.test.cjs` で確認拒否時の無変更、承諾時の設定復元、過大ファイルを未読込で拒否することを検証。
+- `tests/browser/import-confirmation.test.cjs` で実際のChromeダイアログを拒否した場合の記録OFFの保持と、同意後の復元を模擬Chromeにて検証する。ABEMA実放送の確認ではない。
+- ユーザー向けの `guide.html`、`privacy.html` と公開前ポリシー草案に動作を記載した。
 
 ## ABEMAへの問い合わせ準備
 
