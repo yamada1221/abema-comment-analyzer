@@ -25,7 +25,7 @@ $('confirmClear').onclick=async()=>{
   try{
     await navigator.locks.request('abema-comment-history',()=>chrome.storage.local.set({comments:[],lastCommentAt:null}));
     $('clearConfirm').hidden=true;
-    $('clearStatus').textContent='コメント履歴を削除しました。タグ・ミュート・設定は保持されています。';
+    $('clearStatus').textContent='コメント履歴を削除しました。タグ・ミュート・学習用データ・設定は保持されています。';
     await render();
   }catch(error){
     $('clearStatus').textContent='削除に失敗しました。再試行してください。';
