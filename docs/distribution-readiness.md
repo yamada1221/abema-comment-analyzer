@@ -76,6 +76,18 @@ python3 scripts/package_extension.py
 
 **限界**: GitHub ActionsのChromeは模擬・オフライン動作であり、ABEMAの実放送、ストア審査、Chrome Web Storeから配布された署名済み拡張ID、既存利用者への本番更新を再現するものではない。
 
+## コメント削除の安全性とブラウザ再起動テスト（2026-10-19）
+
+- ポップアップの削除ボタンを「コメント履歴を削除」に変更。キャンセルできる二段階確認を追加し、記録ONのままなら新しいコメントが再び保存される旨を明示。
+- 削除対象は `comments` と `lastCommentAt` だけ。タグ、ミュート、学習用サンプル、番組設定を削除せず、削除に失敗した場合はエラー表示する。
+- `tests/browser/package-smoke.test.cjs` で初回確認を開いただけでは履歴が消えないこと、キャンセル、削除実行とタグ・設定の保持を確認。
+- `tests/browser/auto-program.test.cjs` の同時コメント保存40件の後の削除テストも二段階確認に対応。
+- `tests/browser/package-restart.test.cjs` でレビューZIPを同じChromeプロファイルから再起動し、記録OFF設定・保存コメント・タグ・ミュート・番組設定が残ることを検証。
+- [GitHub Actions検証結果](https://github.com/yamada1221/abema-comment-analyzer/actions/runs/39249004659)：ZIP構成検査成功、Python 11件・Node.js 142件・模擬ブラウザ13件の合計166件成功／失敗0。
+- [プライバシーポリシー草案](privacy-policy-draft.md)を追加。問い合わせ先、ABEMA規約確認、最終ソース監査が済むまでは正式な公開ポリシーではない。
+
+ブラウザ再起動テストは**同じ開発用パス・プロファイルのデータ保持**を対象とし、Chromeウェブストアの署名済み拡張の更新や実際のABEMA放送に対する動作保証ではありません。
+
 ## ABEMAへの問い合わせ準備
 
 - [株式会社AbemaTVの公式窓口](https://abematv.co.jp/pages/394742/contact)に、サービスの問い合わせ先メールが掲載されている。
