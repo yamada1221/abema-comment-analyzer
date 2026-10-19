@@ -16,7 +16,7 @@ async function appendCapturedComments(batch) {
   // This extension-origin lock is also used by backup restore and history deletion.
   return navigator.locks.request('abema-comment-history', async () => {
     const data = await chrome.storage.local.get(['comments', 'captureEnabled']);
-    if (data.captureEnabled === false) return { ok: true, skipped: true };
+    if (data.captureEnabled !== true) return { ok: true, skipped: true };
     const now = Date.now(), byId = new Map();
     for (const c of (Array.isArray(data.comments) ? data.comments : []).concat(batch)) {
       const key = String(c.id || `${c.userId}:${c.createdAtMs || c.observedAt}:${c.message}`);
@@ -445,12 +445,15 @@ async function setupAlarm() {
 
 chrome.runtime.onInstalled.addListener((details) => {
   (async () => {
-    // New installations must explicitly opt in before comment capture starts.
-    // Do not change the existing capture preference when upgrading.
-    if (details?.reason === 'install') {
+    // Treat a missing capture flag as OFF at runtime, including during install.
+    // On upgrade, migrate the old implicit-ON default so existing users keep
+    // their previous recording preference without needing to opt in again.
+    if (details?.reason === 'install' || details?.reason === 'update') {
       const { captureEnabled } = await chrome.storage.local.get('captureEnabled');
       if (typeof captureEnabled !== 'boolean') {
-        await chrome.storage.local.set({ captureEnabled: false });
+        await chrome.storage.local.set({
+          captureEnabled: details.reason === 'update'
+        });
       }
     }
     await setupAlarm();
