@@ -4,6 +4,8 @@
   const NativeWebSocket = window.WebSocket;
   if (!NativeWebSocket) return;
   let ready = false;
+  // Do not inspect network payloads or diagnostics until the user enables recording.
+  let captureAllowed = false;
   const pending = [];
   const stats = { startedAt: Date.now(), connections: 0, opened: 0, frames: 0,
     jsonFrames: 0, parsedComments: 0, errors: 0, closed: 0, lastFrameAt: null, sampleKeys: [],
@@ -15,6 +17,7 @@
   const destinations = new Map();
   const selections = new Map();
   function observeDestination(input, transport) {
+    if (!captureAllowed) return;
     try {
       const u = new URL(typeof input === 'string' ? input : input.url || String(input), location.origin);
       if (!/^https?:$|^wss?:$/.test(u.protocol)) return;
@@ -28,15 +31,17 @@
   }
   let statusTimer = null;
   function report() {
-    if (!ready || statusTimer) return;
+    if (!captureAllowed || !ready || statusTimer) return;
     statusTimer = setTimeout(() => {
       statusTimer = null;
+      if (!captureAllowed) return;
       window.postMessage({ source: SOURCE, type: 'NETWORK_STATUS', payload: {
         ...stats, pageUrl: location.origin + location.pathname, updatedAt: Date.now()
       } }, '*');
     }, 1000);
   }
   function publish(payload) {
+    if (!captureAllowed) return;
     if (ready) window.postMessage({ source: SOURCE, type: 'NETWORK_COMMENT', payload }, '*');
     else {
       pending.push(payload);
@@ -44,7 +49,7 @@
     }
   }
   function visit(value, route, depth = 0, transport = 'websocket', capture = true, budget = { left: 12000 }) {
-    if (--budget.left < 0) return;
+    if (!captureAllowed || --budget.left < 0) return;
     if (!value || typeof value !== 'object' || depth > 8) return;
     if (typeof value.message === 'string' && value.message.length > 0 &&
         (typeof value.userId === 'string' || typeof value.userId === 'number') && value.id) {
@@ -61,11 +66,12 @@
   window.WebSocket = new Proxy(NativeWebSocket, {
     construct(target, args, newTarget) {
       const socket = Reflect.construct(target, args, newTarget);
-      stats.connections++;
+      if (captureAllowed) stats.connections++;
       observeDestination(args[0], 'WS');
       const nativeSend = socket.send;
       if (typeof nativeSend === 'function') socket.send = function(...values) {
         const result = Reflect.apply(nativeSend, this, values);
+        if (!captureAllowed) return result;
         stats.sent++;
         // Count subscription-like operations without retaining their payloads.
         try {
@@ -82,7 +88,7 @@
       const socketRoute = location.pathname;
       socket.addEventListener('message', async (event) => {
         const route = location.pathname;
-        if (route !== socketRoute) return;
+        if (!captureAllowed || route !== socketRoute) return;
         stats.frames++;
         stats.lastFrameAt = Date.now();
         try {
@@ -144,6 +150,7 @@
     return chosen;
   }
   function inspectHttp(value, input, route, transport) {
+    if (!captureAllowed) return;
     if (route !== location.pathname) { stats.apiRouteDiscarded++; report(); return; }
     stats.httpJson++;
     stats.lastHttpAt = Date.now();
@@ -152,6 +159,7 @@
     report();
   }
   async function inspectFetch(response, input, route) {
+    if (!captureAllowed) return;
     try {
       if (!response.ok || !/json/i.test(response.headers.get('content-type') || '')) { stats.httpSkipped++; return; }
       if (Number(response.headers.get('content-length')) > 2000000) { stats.httpSkipped++; return; }
@@ -177,6 +185,7 @@
   if (typeof window.fetch === 'function') {
     const original = window.fetch;
     window.fetch = function(...args) {
+      if (!captureAllowed) return Reflect.apply(original, this, args);
       stats.allFetch++;
       observeDestination(args[0], 'fetch');
       report();
@@ -200,6 +209,7 @@
     const apiRequests = new WeakMap();
     proto.open = function(...args) {
       const result = Reflect.apply(originalOpen, this, args);
+      if (!captureAllowed) return result;
       stats.allXhr++;
       observeDestination(args[1], 'XHR');
       report();
@@ -208,6 +218,7 @@
       return result;
     };
     proto.send = function(...args) {
+      if (!captureAllowed) return Reflect.apply(originalSend, this, args);
       const input = apiRequests.get(this);
       const route = location.pathname;
       if (input) { stats.apiSelected++; report(); }
@@ -238,6 +249,7 @@
     window[name] = new Proxy(Original, {
       construct(target, args, newTarget) {
         const instance = Reflect.construct(target, args, newTarget);
+        if (!captureAllowed) return instance;
         stats[counter]++;
         observeDestination(args[0], name);
         report();
@@ -248,6 +260,7 @@
   if (typeof PerformanceObserver === 'function') {
     try {
       const resourceObserver = new PerformanceObserver(list => {
+        if (!captureAllowed) return;
         for (const entry of list.getEntries()) {
           if (['fetch', 'xmlhttprequest', 'other'].includes(entry.initiatorType)) observeDestination(entry.name, `resource/${entry.initiatorType}`);
         }
@@ -259,7 +272,14 @@
   // Refresh diagnostics even when the connection is idle; browsers may throttle this in background tabs.
   if (typeof setInterval === 'function') setInterval(report, 10000);
   window.addEventListener('message', (event) => {
-    if (event.source === window && event.data?.source === SOURCE && event.data.type === 'NETWORK_STATUS_REQUEST') {
+    if (event.source !== window || event.data?.source !== SOURCE) return;
+    if (event.data.direction === 'TO_PAGE' && event.data.type === 'SET_CAPTURE_ENABLED') {
+      captureAllowed = event.data.payload?.enabled === true;
+      if (!captureAllowed) { pending.length = 0; destinations.clear(); selections.clear(); }
+      else report();
+      return;
+    }
+    if (event.data.type === 'NETWORK_STATUS_REQUEST') {
       ready = true;
       report();
       return;
