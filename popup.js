@@ -5,7 +5,7 @@ async function render(){
   $('count').textContent=comments.length; $('users').textContent=new Set(comments.map(c=>c.userId)).size;
   const b=d.backgroundCaptureStatus;
   $('backgroundStatus').textContent=b?(b.enabled?`バックグラウンド接続 ${b.connected}/${b.tabs}タブ / 保存待ち ${b.pending}件`:'コメント記録は停止中です。'):'バックグラウンド確認待ち';
-  const enabled=d.captureEnabled===true; $('toggle').textContent=enabled?'記録を停止':'記録を開始';
+  const enabled=d.captureEnabled===true; $('toggle').textContent=enabled?'記録を停止':'記録を開始'; $('toggle').disabled=false;
   $('status').innerHTML=d.lastCommentAt?`<span class="ok">● 受信あり</span> 最終 ${new Date(d.lastCommentAt).toLocaleTimeString()}`:'<span class="warn">● まだコメント未検出</span>';
 }
 $('open').onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL('dashboard.html')});
