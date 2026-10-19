@@ -29,7 +29,7 @@ function harness({ capture = true, initialTabs = [], settings = {}, readState } 
   let nextId = 100;
   const tabs = new Map(initialTabs.map(tab => [tab.id, structuredClone(tab)]));
   const created = [], removed = [], updated = [], panelRequests = [];
-  const changed = [], messages = [], alarms = [];
+  const changed = [], messages = [], alarms = [], installed = [];
   const event = listeners => ({ addListener: callback => listeners.push(callback) });
   const local = {
     async get(keys) {
@@ -60,7 +60,7 @@ function harness({ capture = true, initialTabs = [], settings = {}, readState } 
     chrome: {
       storage: { local, onChanged: event(changed) },
       alarms: { get: async () => undefined, clear: async () => {}, create: async () => {}, onAlarm: event(alarms) },
-      runtime: { onInstalled: event([]), onStartup: event([]), onMessage: event(messages) },
+      runtime: { onInstalled: event(installed), onStartup: event([]), onMessage: event(messages) },
       tabs: {
         async query() { return structuredClone([...tabs.values()].filter(tab => (tab.pendingUrl || tab.url || '').startsWith('https://abema.tv/'))); },
         async get(id) { if (!tabs.has(id)) throw new Error('No tab'); return structuredClone(tabs.get(id)); },
@@ -89,6 +89,7 @@ function harness({ capture = true, initialTabs = [], settings = {}, readState } 
   });
   return {
     data, tabs, created, removed, updated, panelRequests, local,
+    install: details => installed.forEach(callback => callback(details)),
     tick: options => context.tickAutoProgram(options),
     stop: () => send({ type: 'AUTO_PROGRAM_STOP_NOW' }),
     saveSettings: () => send({ type: 'AUTO_PROGRAM_SETTINGS_SAVED' }),
@@ -444,4 +445,22 @@ test('a fixed-time NEWS window takes priority over a different custom channel', 
   h.setTime(new Date(2026, 9, 6, 2, 0)); await h.tick();
   assert.equal(h.data.captureEnabled, false);
   assert.equal(h.tabs.size, 0);
+});
+
+
+test('a fresh install opts out of recording, but upgrades keep the saved capture preference', async () => {
+  const fresh = harness({ capture: null, settings: { enabled: false } });
+  fresh.install({ reason: 'install' });
+  await fresh.settle();
+  assert.equal(fresh.data.captureEnabled, false);
+
+  const existing = harness({ capture: true, settings: { enabled: false } });
+  existing.install({ reason: 'update', previousVersion: '0.13.1' });
+  await existing.settle();
+  assert.equal(existing.data.captureEnabled, true);
+
+  const legacy = harness({ capture: null, settings: { enabled: false } });
+  legacy.install({ reason: 'update', previousVersion: '0.13.1' });
+  await legacy.settle();
+  assert.equal('captureEnabled' in legacy.data, false);
 });
