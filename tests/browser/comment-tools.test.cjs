@@ -42,7 +42,7 @@ test('comment search, automatic user tags, replay and narrow layouts work as an 
     await page.locator('#commentTagFilter').selectOption('災害情報');
     assert.equal(await page.locator('#commentResults article').count(),2);
     assert.doesNotMatch(await page.locator('body').innerText(),/疑問表現|自動ラベル/);
-    for(const [width,height] of [[1440,1000],[900,900],[390,844]]) {
+    for(const [width,height] of [[1440,1000],[1280,800],[900,900],[390,844]]) {
       await page.setViewportSize({width,height});
       await page.locator('#commentExplorer').scrollIntoViewIfNeeded();
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),`overflow at ${width}`);
