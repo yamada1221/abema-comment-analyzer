@@ -147,10 +147,10 @@ def validate() -> str:
     for size in (16, 32, 48, 128):
         icon = ROOT / f"icons/icon-{size}.png"
         data = icon.read_bytes()
-        if (len(data) < 33 or data[:8] != b"\\x89PNG\\r\\n\\x1a\\n"
+        if (len(data) < 33 or data[:8] != b"\x89PNG\r\n\x1a\n"
                 or data[12:16] != b"IHDR"
                 or struct.unpack(">II", data[16:24]) != (size, size)
-                or data[24:26] != b"\\x08\\x06"):
+                or data[24:26] != b"\x08\x06"):
             raise ValueError(f"Invalid RGBA PNG icon: {icon.name}")
     references = required_files(manifest)
     unexpected = sorted(references - PACKAGE_FILES)
