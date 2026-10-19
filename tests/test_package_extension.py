@@ -36,7 +36,7 @@ class ReviewZipTest(unittest.TestCase):
     def test_validates_current_extension(self) -> None:
         actual = json.loads((self.root / "manifest.json").read_text("utf-8"))["version"]
         self.assertEqual(packager.validate(), actual)
-        self.assertEqual(len(packager.PACKAGE_FILES), 25)
+        self.assertEqual(len(packager.PACKAGE_FILES), 26)
 
     def test_archive_contains_only_allowlisted_files_and_is_reproducible(self) -> None:
         packager.validate()
