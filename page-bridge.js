@@ -4,8 +4,13 @@
   const elementUsers = new Map();
   const hiddenByExtension = new Map();
   let mutedUsers = new Set();
+  // Comment observation starts only after recording opt-in or when a stored
+  // mute list explicitly requires local, display-only filtering.
+  let captureAllowed = false;
+  let started = false;
   let observer = null;
   let scanTimer = null;
+  let scanInterval = null;
   let historyLoading = false;
   let historyCancelled = false;
   let oldestSeenAt = Infinity;
@@ -32,6 +37,7 @@
   }
 
   function emitComment(comment) {
+    if (!captureAllowed) return false;
     const key = commentKey(comment);
     if (seen.has(key)) return false;
     seen.add(key);
@@ -71,6 +77,9 @@
   }
 
   function bindVisibleElement(comment, root) {
+    // No need to retain per-element user identity unless there is an active
+    // mute list. Recording and muting can be enabled independently.
+    if (!mutedUsers.has(String(comment.userId))) return;
     const message = comment.message.trim();
     if (!message) return;
     const candidates = [];
@@ -133,13 +142,13 @@
   }
 
   function inspect(root) {
-    if (!(root instanceof Element)) return 0;
+    if ((!captureAllowed && !mutedUsers.size) || !(root instanceof Element)) return 0;
     const comments = commentsFromReactNode(root);
     if (!comments.length) return 0;
     let added = 0;
     for (const comment of comments) {
-      if (emitComment(comment)) added++;
-      bindVisibleElement(comment, root.parentElement || root);
+      if (captureAllowed && emitComment(comment)) added++;
+      if (mutedUsers.size) bindVisibleElement(comment, root.parentElement || root);
     }
     return added;
   }
@@ -172,6 +181,7 @@
   }
 
   function scanVisibleComments() {
+    if (!captureAllowed && !mutedUsers.size) return 0;
     const candidates = document.querySelectorAll('li, [role="listitem"], [class*="comment" i]');
     const start = Math.max(0, candidates.length - 120);
     let added = 0;
@@ -180,7 +190,7 @@
   }
 
   function scheduleScan() {
-    if (scanTimer) return;
+    if ((!captureAllowed && !mutedUsers.size) || scanTimer) return;
     scanTimer = setTimeout(() => {
       scanTimer = null;
       scanVisibleComments();
@@ -514,6 +524,10 @@
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function loadHistory(requestId) {
+    if (!captureAllowed) {
+      emitProgress({ status: 'error', requestId, message: '記録を開始してから過去コメントを読み込んでください。' });
+      return;
+    }
     if (historyLoading) {
       emitProgress({ status: 'running', requestId, message: 'すでに過去コメントを読み込み中です' });
       return;
@@ -583,8 +597,25 @@
     }
   }
 
-  function start() {
-    if (observer || !document.documentElement) return;
+  function updateObservation() {
+    if (!started) return;
+    const needed = captureAllowed || mutedUsers.size > 0;
+    if (!needed) {
+      observer?.disconnect();
+      observer = null;
+      if (scanTimer !== null) clearTimeout(scanTimer);
+      scanTimer = null;
+      if (scanInterval !== null) clearInterval(scanInterval);
+      scanInterval = null;
+      // Clearing the mute list has already restored hidden comments.
+      elementUsers.clear();
+      return;
+    }
+    if (observer) {
+      // Newly enabled capture or a changed mute list should cover existing rows.
+      scheduleScan();
+      return;
+    }
     observer = new MutationObserver((records) => {
       let relevant = false;
       for (const record of records) {
@@ -601,10 +632,15 @@
       }
       if (relevant) scheduleScan();
     });
-
     observer.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(scanVisibleComments, 1500);
-    setInterval(scanVisibleComments, 5000);
+    scanInterval = setInterval(scanVisibleComments, 5000);
+    scheduleScan();
+  }
+
+  function start() {
+    if (started || !document.documentElement) return;
+    started = true;
+    updateObservation();
     window.postMessage({ source: SOURCE, type: 'BRIDGE_READY' }, '*');
   }
 
@@ -612,13 +648,24 @@
     if (event.source !== window) return;
     const data = event.data;
     if (data?.source === SOURCE && data.type === 'NETWORK_COMMENT') {
-      if (data.payload?.captureRoute === location.pathname && isComment(data.payload)) emitComment(data.payload);
+      if (captureAllowed && data.payload?.captureRoute === location.pathname && isComment(data.payload)) emitComment(data.payload);
       return;
     }
     if (!data || data.source !== SOURCE || data.direction !== 'TO_PAGE') return;
-    if (data.type === 'SET_MUTED_USERS') {
+    if (data.type === 'SET_CAPTURE_ENABLED') {
+      const previous = captureAllowed;
+      captureAllowed = data.payload?.enabled === true;
+      if (previous && !captureAllowed) {
+        seen.clear();
+        oldestSeenAt = Infinity;
+        historyCancelled = true;
+      }
+      updateObservation();
+    } else if (data.type === 'SET_MUTED_USERS') {
       mutedUsers = new Set((data.payload || []).map(String));
       applyMute();
+      if (!mutedUsers.size) elementUsers.clear();
+      updateObservation();
     } else if (data.type === 'RESCAN') {
       scanVisibleComments();
     } else if (data.type === 'OPEN_COMMENT_PANEL') {
