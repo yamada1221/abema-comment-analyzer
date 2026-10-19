@@ -214,7 +214,16 @@ function validateTransferData(data) {
 async function importTransferFile(file) {
   try {
     if (!file) return;
-    const payload = JSON.parse(await file.text());
+    // A malformed or gigantic backup must not exhaust Chrome memory by default.
+    const maxBytes = 256 * 1024 * 1024;
+    if (Number.isFinite(file.size) && file.size > maxBytes) {
+      throw new Error('256MBを超える引継ぎファイルは読み込めません');
+    }
+    const jsonText = await file.text();
+    if (typeof jsonText !== 'string' || jsonText.length > maxBytes) {
+      throw new Error('引継ぎファイルが大きすぎるか読み込めません');
+    }
+    const payload = JSON.parse(jsonText);
     if (!payload || payload.format !== TRANSFER_FORMAT) {
       throw new Error('ABEMA Comment Analyzerの引継ぎファイルではありません');
     }
@@ -225,6 +234,18 @@ async function importTransferFile(file) {
     }
     // Validate every imported field before the first storage write.
     validateTransferData(payload.data);
+    const recording = payload.data.captureEnabled === true;
+    const schedule = payload.data.autoProgramSettings?.enabled === true;
+    const effects = [
+      '現在保存しているコメント・タグ・ミュート・設定の一部が上書きされます。',
+      recording ? '復元後、コメント記録がONになります。' : '',
+      schedule ? '復元後、指定番組の自動起動・記録設定がONになります。' : '',
+      '引継ぎデータを復元しますか？'
+    ].filter(Boolean).join('\\n');
+    if (!window.confirm(effects)) {
+      setTransferStatus('引継ぎをキャンセルしました。既存データは変更していません。');
+      return;
+    }
     const restore = {};
     for (const key of TRANSFER_KEYS) {
       if (Object.hasOwn(payload.data, key)) restore[key] = payload.data[key];
