@@ -88,6 +88,14 @@ python3 scripts/package_extension.py
 
 ブラウザ再起動テストは**同じ開発用パス・プロファイルのデータ保持**を対象とし、Chromeウェブストアの署名済み拡張の更新や実際のABEMA放送に対する動作保証ではありません。
 
+## オリジナルアイコンとストア画像の検証（2026-10-19）
+
+- ABEMAのロゴと混同しない独自の吹き出し・集計バーのデザインで、`icons/icon-16.png`、`icon-32.png`、`icon-48.png`、`icon-128.png` を追加。Manifestの`icons`と`action.default_icon`に登録し、ローカルのレビューZIPに4枚含めるようにした。
+- `scripts/generate_icons.cjs` は依存パッケージなしでPNGを生成し、`--check` でGitに保存されたアイコンのバイナリ一致を確認する。128ピクセル画像は透明余白を持つ。画面上の小サイズでの可読性の最終確認は残る。
+- `scripts/package_extension.py` の許可リストを25ファイルに更新し、PNGヘッダー、RGBA形式、画像サイズを検査する。PythonのZIP回帰テストと、展開済みZIPをChromeへ読み込むブラウザテストも対応させた。
+- `scripts/check_store_screenshots.py` で、模擬コメントによるダッシュボード画面がPNGかつ1280×800かを確認する。画像のサイズ検査はストアでの審査や実放送の検証を意味しない。
+- 審査用の440×280の小型プロモーション画像、1280×800スクリーンショットの目視確認、正式なプライバシーポリシー公開先、問い合わせ窓口は未完了。承認なくChromeウェブストアへの申請は行わない。
+
 ## ABEMAへの問い合わせ準備
 
 - [株式会社AbemaTVの公式窓口](https://abematv.co.jp/pages/394742/contact)に、サービスの問い合わせ先メールが掲載されている。
