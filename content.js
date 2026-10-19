@@ -25,7 +25,7 @@
   };
 
   let queue = [];
-  let captureEnabled = true;
+  let captureEnabled = false;
   let flushAgain = false;
   let lastEventFlushAt = 0;
   let flushing = false;
@@ -242,7 +242,7 @@
     if (!isContextValid()) return;
     try {
       const data = await chrome.storage.local.get(['mutedUsers', 'moderationSettings', 'captureEnabled']);
-      captureEnabled = data.captureEnabled !== false;
+      captureEnabled = data.captureEnabled === true;
       mutedUsersCache = new Set((data.mutedUsers || []).map(String));
       moderation = { ...DEFAULT_MODERATION, ...(data.moderationSettings || {}) };
       whitelistCache = new Set((moderation.whitelistUsers || []).map(String));
@@ -442,7 +442,7 @@
       }
       if (area !== 'local') return;
       if (changes.captureEnabled) {
-        captureEnabled = changes.captureEnabled.newValue !== false;
+        captureEnabled = changes.captureEnabled.newValue === true;
         if (!captureEnabled) { queue = []; userActivity.clear(); lastNonEmojiAt.clear(); }
       }
       if (changes.mutedUsers) {
