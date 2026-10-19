@@ -92,9 +92,18 @@ python3 scripts/package_extension.py
 
 - ABEMAのロゴと混同しない独自の吹き出し・集計バーのデザインで、`icons/icon-16.png`、`icon-32.png`、`icon-48.png`、`icon-128.png` を追加。Manifestの`icons`と`action.default_icon`に登録し、ローカルのレビューZIPに4枚含めるようにした。
 - `scripts/generate_icons.cjs` は依存パッケージなしでPNGを生成し、`--check` でGitに保存されたアイコンのバイナリ一致を確認する。128ピクセル画像は透明余白を持つ。画面上の小サイズでの可読性の最終確認は残る。
-- `scripts/package_extension.py` の許可リストを25ファイルに更新し、PNGヘッダー、RGBA形式、画像サイズを検査する。PythonのZIP回帰テストと、展開済みZIPをChromeへ読み込むブラウザテストも対応させた。
+- `scripts/package_extension.py` の許可リストを26ファイルに更新し、PNGヘッダー、RGBA形式、画像サイズを検査する。PythonのZIP回帰テストと、展開済みZIPをChromeへ読み込むブラウザテストも対応させた。
 - `scripts/check_store_screenshots.py` で、模擬コメントによるダッシュボード画面がPNGかつ1280×800かを確認する。画像のサイズ検査はストアでの審査や実放送の検証を意味しない。
 - 審査用440×280小型プロモーション画像の草案は `store-assets/promo-small.png` に追加した。1280×800スクリーンショット・プロモーション画像の最終目視確認、正式なプライバシーポリシー公開先、問い合わせ窓口は未完了。承認なくChromeウェブストアへの申請は行わない。
+
+## CSVの数式解釈対策（2026-10-19）
+
+- 収集したコメント本文・投稿者ID・番組名は外部由来であり、CSVをExcel等で開いたときに `=`、`+`、`-`、`@` で始まる値を数式と解釈されるおそれがある。
+- `csv-export.js` に数式として解釈され得る先頭文字（先頭空白・制御文字も含む）のアポストロフィ付加、引用符のCSVエスケープ、UTF-8 BOMおよびCRLF改行を実装。既存のJSONデータや保存コメントは変更しない。
+- `tests/csv-export.test.cjs` は単体テスト3件を追加。 `tests/browser/csv-export.test.cjs` はレビューZIPをChromeに読み込み、悪意ある数式風のコメントを実際にCSVでダウンロードし検証する。
+- レビューZIPのファイル数を26件に更新し、必要なスクリプトのみ梱包する。
+- [GitHub Actions成功結果（コード変更時）](https://github.com/yamada1221/abema-comment-analyzer/actions/runs/39254242736)：Python 12件・Node.js 145件・模擬Chrome 14件、合計**171件成功／失敗0**。
+- 注：数式インジェクションの解釈は表計算ソフトやインポート操作に依存する。全ソフトでの安全性を保証するものではなく、開く側も出所不明のCSVには注意が必要。
 
 ## ABEMAへの問い合わせ準備
 
