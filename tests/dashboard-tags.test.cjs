@@ -228,6 +228,15 @@ test('malformed transfers never overwrite any existing data', async t => {
     ['whitelist', { moderationSettings: { whitelistUsers: {} } }],
     ['enabled flag', { moderationSettings: { enabled: 'false' } }],
     ['numeric threshold', { moderationSettings: { rateCount: {} } }],
+    ['negative rate count', { moderationSettings: { rateCount: -1 } }],
+    ['zero emoji window', { moderationSettings: { emojiWindowSec: 0 } }],
+    ['huge duplicate window', { moderationSettings: { duplicateWindowSec: 999999999 } }],
+    ['out-of-range selected match threshold', { moderationSettings: { learningSelectedMatchThreshold: 9 } }],
+    ['negative candidate threshold', { moderationSettings: { learningCandidateThreshold: -0.5 } }],
+    ['oversized analysis window', { analysisWindowMinutes: 31 * 24 * 60 }],
+    ['negative automatic stop polls', { autoProgramSettings: { missingPollsToStop: -5 } }],
+    ['noninteger automatic stop polls', { autoProgramSettings: { missingPollsToStop: 2.5 } }],
+    ['huge automatic stop polls', { autoProgramSettings: { missingPollsToStop: 999999 } }],
     ['log entry', { autoMuteLog: [null] }],
     ['capture flag', { captureEnabled: 'false' }],
     ['analysis window', { analysisWindowMinutes: {} }],
@@ -254,6 +263,29 @@ test('malformed transfers never overwrite any existing data', async t => {
       assert.deepEqual(store.state, before);
     } finally { page.close(); }
   });
+});
+
+test('valid boundary settings import without changing unrelated tags and comments', async () => {
+  const store=fixture(), page=await dashboard(store);
+  try {
+    const backup={
+      format:'abema-comment-analyzer-transfer',schemaVersion:6,
+      data:{
+        moderationSettings: {rateCount:2, emojiCount:100,
+          emojiWindowSec:86400, learningSelectedMatchThreshold:1},
+        analysisWindowMinutes:30*24*60,
+        autoProgramSettings:{enabled:false, missingPollsToStop:1}
+      }
+    };
+    const existingComments=clone(store.state.comments);
+    await page.w.importTransferFile({text: async()=>JSON.stringify(backup)});
+    assert.match(page.el('transferStatus').textContent,/引継ぎ完了/);
+    assert.equal(store.state.moderationSettings.rateCount,2);
+    assert.equal(store.state.moderationSettings.emojiWindowSec,86400);
+    assert.equal(store.state.analysisWindowMinutes,30*24*60);
+    assert.equal(store.state.autoProgramSettings.missingPollsToStop,1);
+    assert.deepEqual(store.state.comments,existingComments);
+  }finally{page.close();}
 });
 
 test('old auto-start settings retain the custom program while new daily presets can be disabled and transferred', async () => {
