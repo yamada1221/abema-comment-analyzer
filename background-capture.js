@@ -23,14 +23,14 @@
       const targets = tabs.filter(tab => /^https:\/\/abema\.tv\//.test(tab.pendingUrl || tab.url || ''));
       for (const [id, previous] of Object.entries(protectedTabs)) {
         const tab = tabs.find(tab => tab.id === Number(id));
-        if (captureEnabled !== false && targets.includes(tab)) continue;
+        if (captureEnabled === true && targets.includes(tab)) continue;
         if (tab) {
           try { await chrome.tabs.update(tab.id, { autoDiscardable: previous }); }
           catch (_) { continue; }
         }
         delete protectedTabs[id];
       }
-      if (captureEnabled !== false) {
+      if (captureEnabled === true) {
         for (const tab of targets) {
           if (tab.autoDiscardable === false) continue;
           // Save the original value before changing it; survive service-worker suspension.
@@ -41,10 +41,10 @@
         }
       }
       await chrome.storage.session.set({ captureProtectedTabs: protectedTabs });
-      const reports = captureEnabled === false ? [] : await Promise.all(targets.map(tab => ping(tab.id)));
+      const reports = captureEnabled !== true ? [] : await Promise.all(targets.map(tab => ping(tab.id)));
       await chrome.storage.local.set({ backgroundCaptureStatus: {
-        updatedAt: Date.now(), enabled: captureEnabled !== false, tabs: targets.length,
-        protectedTabs: captureEnabled === false ? 0 : targets.filter(tab => tab.autoDiscardable === false || Object.hasOwn(protectedTabs,tab.id)).length,
+        updatedAt: Date.now(), enabled: captureEnabled === true, tabs: targets.length,
+        protectedTabs: captureEnabled !== true ? 0 : targets.filter(tab => tab.autoDiscardable === false || Object.hasOwn(protectedTabs,tab.id)).length,
         connected: reports.filter(report => report?.ok).length,
         pending: reports.reduce((sum,report) => sum+(Number(report?.pending)||0),0),
         discarded: targets.filter(tab => tab.discarded).length
