@@ -115,7 +115,24 @@ def validate() -> str:
     return version
 
 
+def checked_output(output: Path) -> Path:
+    """Prevent --output from replacing source files or writing outside dist/."""
+    dist = ROOT / "dist"
+    root_resolved = ROOT.resolve()
+    if dist.is_symlink() or dist.resolve() != root_resolved / "dist":
+        raise ValueError("Unsafe dist directory")
+    if output.suffix.lower() != ".zip" or output.name in (".", ".."):
+        raise ValueError("Review output must be a .zip file")
+    # Require a direct child of dist, not just a matching prefix or traversal.
+    if output.parent.resolve() != dist.resolve() or output.is_symlink():
+        raise ValueError("Review ZIP must be a non-symlink file directly in dist/")
+    if output.exists() and not output.is_file():
+        raise ValueError("Review ZIP destination is not a regular file")
+    return output
+
+
 def build(output: Path) -> None:
+    output = checked_output(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(output, "w", ZIP_DEFLATED, compresslevel=9) as archive:
         for name in sorted(PACKAGE_FILES):
