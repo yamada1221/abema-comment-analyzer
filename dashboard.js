@@ -284,6 +284,12 @@ async function importTransferFile(file) {
     }
     restore.storageSchemaVersion = STORAGE_SCHEMA_VERSION;
     restore.lastTransferImportAt = Date.now();
+    // Notify the session writer even if captureEnabled already has this value.
+    // A partial backup without a recording flag must keep the original preference.
+    restore.lastTransferCapturePreference = {
+      importedAt: restore.lastTransferImportAt,
+      enabled: Object.hasOwn(restore, 'captureEnabled') ? restore.captureEnabled : null
+    };
     restore.lastTransferSourceVersion = String(payload.extensionVersion || 'unknown');
     if (Object.hasOwn(restore, 'userTags')) restore.userTags = ABEMAUserTags.normalizeMap(restore.userTags);
     if (Object.hasOwn(restore, 'learningSelectedSamples')) {

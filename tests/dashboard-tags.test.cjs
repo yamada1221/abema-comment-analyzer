@@ -835,3 +835,17 @@ test('restored commentId metadata keeps learning selection identifiable and reve
     }
   } finally { page.close(); }
 });
+
+test('backup imports notify automatic sessions of explicit and absent recording preferences', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    for (const data of [{ captureEnabled: false }, { captureEnabled: true }, { userTags: {} }]) {
+      await page.w.importTransferFile({ text: async () => JSON.stringify({
+        format: 'abema-comment-analyzer-transfer', schemaVersion: 6, data
+      }) });
+      assert.match(page.el('transferStatus').textContent, /引継ぎ完了/);
+      assert.equal(store.state.lastTransferCapturePreference.enabled, data.captureEnabled ?? null);
+      assert.equal(store.state.lastTransferCapturePreference.importedAt, store.state.lastTransferImportAt);
+    }
+  } finally { page.close(); }
+});

@@ -493,3 +493,48 @@ test('updating an opted-out installation retains comments, tags, mutes and sched
   assert.equal(h.data.captureEnabled, false);
   assert.deepEqual(h.data.comments, before.comments);
 });
+
+test('restoring disabled automation preserves the imported recording preference', async () => {
+  for (const [previous, imported] of [[true, false], [false, true]]) {
+    const h = harness({ capture: previous });
+    await h.tick();
+    assert.equal(h.data.captureEnabled, true);
+    assert.equal(h.data.autoProgramSession.previousCaptureEnabled, previous);
+    await h.local.set({
+      captureEnabled: imported,
+      autoProgramSettings: { ...h.data.autoProgramSettings, enabled: false },
+      lastTransferImportAt: Date.now(),
+      lastTransferCapturePreference: { importedAt: Date.now(), enabled: imported }
+    });
+    await h.settle();
+    assert.equal(h.data.autoProgramSession, null);
+    assert.equal(h.data.captureEnabled, imported);
+  }
+});
+
+test('recording-only imports update the session preference even if capture is already ON', async () => {
+  for (const [previous, imported] of [[false, true], [true, false], [true, null]]) {
+    const h = harness({ capture: previous });
+    await h.tick();
+    await h.local.set({
+      ...(imported === null ? {} : { captureEnabled: imported }),
+      lastTransferImportAt: Date.now(),
+      lastTransferCapturePreference: { importedAt: Date.now(), enabled: imported }
+    });
+    await h.settle();
+    await h.stop();
+    assert.equal(h.data.captureEnabled, imported === null ? previous : imported);
+  }
+});
+
+test('partial imports do not restart a manually completed automatic window', async () => {
+  const h = harness({ capture: false });
+  await h.tick(); await h.stop();
+  const created = h.created.length;
+  await h.local.set({ lastTransferImportAt: Date.now(),
+    lastTransferCapturePreference: { importedAt: Date.now(), enabled: null } });
+  await h.settle();
+  assert.equal(h.created.length, created);
+  assert.equal(h.data.captureEnabled, false);
+  assert.equal(h.data.autoProgramSession, null);
+});

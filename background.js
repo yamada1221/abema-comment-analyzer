@@ -45,11 +45,23 @@ function tickAutoProgram(options = {}) {
   });
 }
 
-function applyAutoProgramSettings() {
+function applyAutoProgramSettings({ capturePreference, resetCompleted = true } = {}) {
   const revision = ++autoProgramRevision;
   return queueAutoProgram(async () => {
+    // A confirmed backup replaces the user's recording preference even while an
+    // automatic session temporarily controls captureEnabled. Preserve this change
+    // before an old session ends or a newer queued settings update takes over.
+    if (typeof capturePreference?.enabled === 'boolean') {
+      const { autoProgramSession } = await chrome.storage.local.get('autoProgramSession');
+      if (autoProgramSession) await chrome.storage.local.set({ autoProgramSession: {
+        ...autoProgramSession, previousCaptureHadValue: true,
+        previousCaptureEnabled: capturePreference.enabled
+      } });
+    }
     if (revision !== autoProgramRevision) return;
-    await chrome.storage.local.remove(['autoProgramLastCompletedWindowKey', 'autoProgramCompletedWindowKeys']);
+    if (resetCompleted) {
+      await chrome.storage.local.remove(['autoProgramLastCompletedWindowKey', 'autoProgramCompletedWindowKeys']);
+    }
     if (revision === autoProgramRevision) return runAutoProgramTick({}, revision);
   });
 }
@@ -474,8 +486,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.autoProgramSettings) {
-    applyAutoProgramSettings().catch(() => {});
+  if (area === 'local' && (changes.autoProgramSettings || changes.lastTransferCapturePreference)) {
+    applyAutoProgramSettings({
+      capturePreference: changes.lastTransferCapturePreference?.newValue,
+      resetCompleted: !!changes.autoProgramSettings
+    }).catch(() => {});
   }
 });
 

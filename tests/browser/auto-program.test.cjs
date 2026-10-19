@@ -247,3 +247,27 @@ for (const options of [
     } finally { await app.context.close(); }
   });
 }
+
+test('confirmed backups keep their recording preference when stopping an active automatic session', { timeout: 90000 }, async () => {
+  const app = await extension();
+  try {
+    for (const [previous, imported] of [[true, false], [false, true]]) {
+      await app.worker.evaluate(value => chrome.storage.local.set({ captureEnabled: value }), previous);
+      const recordingState = await start(app);
+      assert.equal(recordingState.autoProgramSession.previousCaptureEnabled, previous);
+      const settings = await app.worker.evaluate(() => chrome.storage.local.get('autoProgramSettings'));
+      const payload = { format: 'abema-comment-analyzer-transfer', schemaVersion: 6,
+        data: { captureEnabled: imported, autoProgramSettings: { ...settings.autoProgramSettings, enabled: false } } };
+      await app.dashboard.evaluate(() => { document.getElementById('transferStatus').textContent = ''; });
+      app.dashboard.once('dialog', dialog => dialog.accept());
+      await app.dashboard.locator('#transferFile').setInputFiles({
+        name: 'stop-automation.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(payload))
+      });
+      await app.dashboard.waitForFunction(() =>
+        document.getElementById('transferStatus').textContent.includes('引継ぎ完了'));
+      await waitForStorage(app.worker, ['autoProgramSession', 'captureEnabled'], state =>
+        state.autoProgramSession === null && state.captureEnabled === imported);
+      assert.equal((await app.worker.evaluate(() => chrome.tabs.query({ url: 'https://abema.tv/*' }))).length, 0);
+    }
+  } finally { await app.context.close(); }
+});
