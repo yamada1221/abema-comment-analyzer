@@ -5,11 +5,11 @@ async function render(){
   $('count').textContent=comments.length; $('users').textContent=new Set(comments.map(c=>c.userId)).size;
   const b=d.backgroundCaptureStatus;
   $('backgroundStatus').textContent=b?(b.enabled?`バックグラウンド接続 ${b.connected}/${b.tabs}タブ / 保存待ち ${b.pending}件`:'コメント記録は停止中です。'):'バックグラウンド確認待ち';
-  const enabled=d.captureEnabled!==false; $('toggle').textContent=enabled?'記録を停止':'記録を開始';
+  const enabled=d.captureEnabled===true; $('toggle').textContent=enabled?'記録を停止':'記録を開始';
   $('status').innerHTML=d.lastCommentAt?`<span class="ok">● 受信あり</span> 最終 ${new Date(d.lastCommentAt).toLocaleTimeString()}`:'<span class="warn">● まだコメント未検出</span>';
 }
 $('open').onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL('dashboard.html')});
-$('toggle').onclick=async()=>{const d=await chrome.storage.local.get('captureEnabled');await chrome.storage.local.set({captureEnabled:d.captureEnabled===false});render();};
+$('toggle').onclick=async()=>{const d=await chrome.storage.local.get('captureEnabled');await chrome.storage.local.set({captureEnabled:d.captureEnabled!==true});render();};
 $('clear').onclick=async()=>{await navigator.locks.request('abema-comment-history',()=>chrome.storage.local.set({comments:[],lastCommentAt:null}));render();};
 render();
 async function renderNetwork() {
