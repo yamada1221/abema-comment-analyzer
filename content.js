@@ -386,7 +386,7 @@
     if (!contextValid || event.source !== window) return;
     const d = event.data;
     if (!d || d.source !== SOURCE) return;
-    if (d.type === 'NETWORK_STATUS' && d.payload && isContextValid()) {
+    if (d.type === 'NETWORK_STATUS' && d.payload && captureEnabled && isContextValid()) {
       try {
         await chrome.storage.local.set({ networkCaptureStatus: d.payload });
       } catch (error) { invalidateContext(error); }
