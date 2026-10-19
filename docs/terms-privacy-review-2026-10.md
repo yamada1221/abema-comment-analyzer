@@ -41,7 +41,7 @@
 
 - [x] 新規インストール時は初期OFF、更新時はユーザー設定を維持する設計
 - [x] 取得内容を記録開始前にポップアップへ表示
-- [x] GitHub Actionsの単体141件・模擬ブラウザ11件が成功（[実行ログ](https://github.com/yamada1221/abema-comment-analyzer/actions/runs/39240880446)）
+- [x] GitHub Actionsの単体142件・模擬ブラウザ11件・ZIP検証11件が成功（[実行ログ](https://github.com/yamada1221/abema-comment-analyzer/actions/runs/39244404946)）
 - [x] ネットワーク経由のコメント解析・診断送信を記録OFF時に抑止する処理と単体テストを追加
 - [x] DOM走査を記録ONまたは既存ミュート設定がある場合だけ起動し、記録OFF時は履歴送信しない回帰テストを追加
 - [ ] ミュートだけ使う場合の処理とプライバシー開示を国内Chromeの本番画面で再確認
