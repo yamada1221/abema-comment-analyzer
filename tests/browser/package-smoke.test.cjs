@@ -49,6 +49,34 @@ test('review ZIP installs as a real extension with opt-in and linked guidance',
       assert.match(await popup.locator('#captureDisclosure').innerText(), /コメント本文・投稿者ID/);
       assert.match(await popup.locator('#network').innerText(), /記録OFF中/);
 
+      // Deletion is explicitly two-step and never removes tags, mutes or settings.
+      await worker.evaluate(() => chrome.storage.local.set({
+        comments: [{ id: 'retained-before-confirm', userId: 'sample', message: '履歴',
+          createdAtMs: Date.now() }],
+        lastCommentAt: Date.now(), userTags: { sample: ['残す'] },
+        mutedUsers: ['muted'], autoProgramSettings: { enabled: false }
+      }));
+      await popup.waitForFunction(() => document.querySelector('#count').textContent === '1');
+      await popup.locator('#clear').click();
+      assert.equal(await popup.locator('#clearConfirm').isVisible(), true);
+      assert.match(await popup.locator('#clearConfirm').innerText(), /取り消せません/);
+      let before = await worker.evaluate(() => chrome.storage.local.get('comments'));
+      assert.equal(before.comments.length, 1, 'opening confirmation must not delete history');
+      await popup.locator('#cancelClear').click();
+      assert.equal(await popup.locator('#clearConfirm').isVisible(), false);
+      before = await worker.evaluate(() => chrome.storage.local.get('comments'));
+      assert.equal(before.comments.length, 1, 'cancel must retain saved history');
+      await popup.locator('#clear').click();
+      await popup.locator('#confirmClear').click();
+      const cleared = await waitForStorage(worker,
+        ['comments', 'lastCommentAt', 'userTags', 'mutedUsers', 'autoProgramSettings'],
+        state => Array.isArray(state.comments) && state.comments.length === 0
+          && state.lastCommentAt === null);
+      assert.deepEqual(cleared.userTags, { sample: ['残す'] });
+      assert.deepEqual(cleared.mutedUsers, ['muted']);
+      assert.deepEqual(cleared.autoProgramSettings, { enabled: false });
+      await popup.waitForFunction(() => document.querySelector('#clearStatus').textContent.includes('削除しました'));
+
       const help = popup.locator('a[href="guide.html"]');
       assert.equal(await help.count(), 1);
       const guide = await context.newPage();
