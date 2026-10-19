@@ -68,6 +68,24 @@ def required_files(manifest: dict) -> set[str]:
     for item in manifest.get("content_scripts", []):
         result.update(item.get("js", []))
         result.update(item.get("css", []))
+    # Store artwork is not yet provided, but future additions must never be
+    # silently omitted from the review archive.
+    icons = manifest.get("icons", {})
+    if isinstance(icons, dict):
+        result.update(icons.values())
+    action_icons = manifest.get("action", {}).get("default_icon", {})
+    if isinstance(action_icons, str):
+        result.add(action_icons)
+    elif isinstance(action_icons, dict):
+        result.update(action_icons.values())
+    if manifest.get("options_ui", {}).get("page"):
+        result.add(manifest["options_ui"]["page"])
+    if manifest.get("side_panel", {}).get("default_path"):
+        result.add(manifest["side_panel"]["default_path"])
+    if manifest.get("devtools_page"):
+        result.add(manifest["devtools_page"])
+    for data in manifest.get("web_accessible_resources", []):
+        result.update(data.get("resources", []))
     background = manifest.get("background", {}).get("service_worker")
     if background:
         result.add(background)
@@ -105,6 +123,13 @@ def validate() -> str:
         raise ValueError("Invalid extension version")
     if manifest.get("host_permissions") != ["https://abema.tv/*"]:
         raise ValueError("Unexpected host permission scope")
+    if set(manifest.get("permissions", [])) != {
+        "storage", "tabs", "alarms", "unlimitedStorage"
+    } or manifest.get("optional_permissions") or manifest.get("optional_host_permissions"):
+        raise ValueError("Unexpected extension permission scope")
+    for item in manifest.get("content_scripts", []):
+        if item.get("matches") != ["https://abema.tv/*"]:
+            raise ValueError("Unexpected content-script site scope")
     missing = sorted(name for name in PACKAGE_FILES if not (ROOT / name).is_file())
     if missing:
         raise ValueError(f"Missing packaged files: {', '.join(missing)}")
