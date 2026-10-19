@@ -584,3 +584,51 @@ test('changing emoji thresholds invalidates queued mute decisions before storage
     assert.equal((await page.w.ABEMAModerationStore.apply(command)).count,0);
   }finally{page.close();}
 });
+
+
+test('backup restore asks before re-enabling recording or automatic programs', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    const before = clone(store.state);
+    const messages = [];
+    const backup = {
+      format: 'abema-comment-analyzer-transfer',
+      schemaVersion: 6,
+      extensionVersion: '0.13.1',
+      data: {
+        comments: [{ id: 'backup', userId: 'imported', message: 'new', createdAtMs: Date.now() }],
+        captureEnabled: true,
+        autoProgramSettings: { enabled: true, primaryEnabled: true }
+      }
+    };
+    page.w.confirm = message => { messages.push(message); return false; };
+    await page.w.importTransferFile({ text: async () => JSON.stringify(backup) });
+    assert.deepEqual(store.state, before, 'cancel must not overwrite any user data');
+    assert.match(page.el('transferStatus').textContent, /キャンセル/);
+    assert.equal(messages.length, 1);
+    assert.match(messages[0], /コメント記録がON/);
+    assert.match(messages[0], /自動起動・記録設定がON/);
+
+    page.w.confirm = message => { messages.push(message); return true; };
+    await page.w.importTransferFile({ text: async () => JSON.stringify(backup) });
+    assert.equal(store.state.captureEnabled, true);
+    assert.equal(store.state.autoProgramSettings.enabled, true);
+    assert.equal(store.state.comments[0].id, 'backup');
+    assert.equal(messages.length, 2);
+  } finally { page.close(); }
+});
+
+test('oversized backup is rejected without even reading its contents', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    const before = clone(store.state);
+    let read = false;
+    await page.w.importTransferFile({
+      size: 256 * 1024 * 1024 + 1,
+      text: async () => { read = true; throw new Error('should not be read'); }
+    });
+    assert.equal(read, false);
+    assert.deepEqual(store.state, before);
+    assert.match(page.el('transferStatus').textContent, /256MB/);
+  } finally { page.close(); }
+});
