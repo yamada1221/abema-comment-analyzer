@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ABEMAコメント分析 | はじめに</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #121418; color: #ebedf0; line-height: 1.75; }
+    main { max-width: 780px; padding: 24px 20px 48px; margin: auto; }
+    h1 { font-size: 1.7rem; margin-bottom: .3em; }
+    h2 { font-size: 1.15rem; border-bottom: 1px solid #373c46; padding-bottom: .3em; margin-top: 2em; }
+    a { color: #a8c7ff; }
+    .note { padding: 14px; border: 1px solid #4a5362; border-radius: 8px; background: #20252e; }
+    .muted { color: #b0b7c2; }
+    ol li { margin-bottom: .65em; }
+    footer { margin-top: 40px; border-top: 1px solid #373c46; padding-top: 18px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>ABEMAコメント分析 — はじめに</h1>
+    <p class="muted">Chrome（PC）用の非公式拡張機能です。ABEMA運営元とは関係ありません。</p>
+    <p class="note">動画を保存する機能ではありません。表示・受信できたコメントを、使用中のブラウザ内に記録して検索・分析します。ABEMA側の変更により動作しない場合があります。</p>
+    <h2>使い始める</h2>
+    <ol>
+      <li>PCのChromeでABEMAの視聴ページを開きます。拡張機能の追加後、開いたままのABEMAタブは再読み込みしてください。</li>
+      <li>Chromeのツールバーから「ABEMA Comment Analyzer」のアイコンを開きます。</li>
+      <li>新規インストールではコメント記録は停止しています。内容を確認のうえ、必要なときだけ「記録を開始」を押します。</li>
+      <li>ABEMA側でコメント欄を表示し、ポップアップの「保存中のコメント」の件数を確認します。コメントが提供されない番組では記録できません。</li>
+      <li>「分析画面を開く」で検索・投稿者タグ・コメントのリプレイ・ミュートを使います。</li>
+      <li>不要になったらポップアップの「記録を停止」を押します。</li>
+    </ol>
+    <p><a href="dashboard.html" target="_blank" rel="noopener noreferrer">分析画面を開く</a></p>
+    <h2>保存と削除</h2>
+    <ul>
+      <li>コメント本文、投稿者ID、時刻、ページ情報などをChromeのローカル保存領域に記録します。コメントは原則最大30日、かつ最大10万件までです。保存上限では古いものから削除されます。</li>
+      <li>「保存データを消去」はコメント履歴を消しますが、タグ・ミュート設定・番組設定などは消しません。</li>
+      <li>分析画面の「引継ぎデータを書き出す」にはコメント・タグ・設定等が含まれるため、他人に渡さず安全に保管してください。書き出したファイルは拡張から削除されません。</li>
+      <li>端末内の全設定も使わなくなった場合はChromeの拡張機能管理画面で拡張を削除できます。手元の引継ぎファイルは別途管理してください。</li>
+    </ul>
+    <h2>自動起動と制限</h2>
+    <ul>
+      <li>番組の自動起動は初期状態で無効です。利用者が分析画面で有効化した場合のみ指定時刻の監視を行います。</li>
+      <li>ABEMAタブを閉じると新規コメントは取得できません。バックグラウンド記録もABEMA側の接続とブラウザの動作に依存します。</li>
+      <li>自動ミュートは誤判定の可能性があります。必要に応じて設定を調整・取り消ししてください。</li>
+      <li>現時点でクラウドブラウザからABEMA実放送を使った最終検証はできていません。一般配布前の検証版です。</li>
+    </ul>
+    <h2>プライバシー</h2>
+    <p>個人の視聴状況にかかわる可能性のある情報を取り扱います。記録対象・保存先・削除方法については<a href="privacy.html">データの取り扱い</a>を確認してください。</p>
+    <footer><p class="muted">ABEMA Comment Analyzer — 開発中の案内ページ。一般配布・課金はまだ開始していません。</p></footer>
+  </main>
+</body>
+</html>
