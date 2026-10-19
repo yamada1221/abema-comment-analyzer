@@ -173,7 +173,10 @@ function validateTransferData(data) {
   if (Object.hasOwn(data, 'autoTagSettings')) ABEMACommentTools.normalizeTagSettings(data.autoTagSettings);
   if (Object.hasOwn(data, 'autoLabelSettings')) ABEMACommentTools.migrateLabelSettings(data.autoLabelSettings);
   if (Object.hasOwn(data, 'autoTagExclusions')) ABEMAAutoUserTags.normalizeExclusions(data.autoTagExclusions);
-  optional(data, 'comments', value => Array.isArray(value) && value.every(comment), 'data');
+  // Match the actual 100,000-comment retention cap when restoring backups.
+  // Validate before any storage write, rather than silently truncating a backup.
+  optional(data, 'comments', value => Array.isArray(value) &&
+    value.length <= 100000 && value.every(comment), 'data');
   for (const key of ['mutedUsers', 'learningAutoMutedUsers']) optional(data, key, ids, 'data');
   optional(data, 'captureEnabled', value => typeof value === 'boolean', 'data');
   optional(data, 'analysisWindowMinutes', value => Number.isFinite(value) && value > 0, 'data');
