@@ -290,7 +290,15 @@ async function importTransferFile(file) {
           [...(restore.learningAutoMutedUsers || existing.learningAutoMutedUsers || []),
             ...((restore.moderationSettings || existing.moderationSettings || {}).whitelistUsers || [])]);
       }
-      await navigator.locks.request('abema-comment-history', () => chrome.storage.local.set(restore));
+      await navigator.locks.request('abema-comment-history', async () => {
+        // Re-read under the write lock: another page may have upgraded storage
+        // while the file was being read or the confirmation was open.
+        const current = await chrome.storage.local.get('storageSchemaVersion');
+        if (Number(current.storageSchemaVersion) > STORAGE_SCHEMA_VERSION) {
+          throw new Error('新しい保存形式のデータは上書きできません。拡張機能を最新版へ更新してください。');
+        }
+        await chrome.storage.local.set(restore);
+      });
     }));
     setTransferStatus(`引継ぎ完了: v${payload.extensionVersion || '?'} のデータを復元しました。コメント ${restore.comments?.length || 0}件、ミュート ${restore.mutedUsers?.length || 0}件。${Object.hasOwn(restore, 'userTags') ? 'タグも復元しました。' : '旧形式のため現在のタグは保持しました。'}`);
     await ABEMAAutoUserTags.refresh();

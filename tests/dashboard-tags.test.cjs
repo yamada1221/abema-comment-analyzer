@@ -693,3 +693,26 @@ test('backup import rejects more than 100,000 comments before touching existing 
     assert.doesNotThrow(() => page.w.validateTransferData(payload.data));
   } finally { page.close(); }
 });
+
+
+test('transfer rechecks destination schema after confirmation and preserves newer data', async () => {
+  const store = fixture(), page = await dashboard(store);
+  store.listeners.length = 0;
+  let before;
+  try {
+    page.w.confirm = () => {
+      // Simulate a newer extension page upgrading the destination during import.
+      store.state.storageSchemaVersion = 7;
+      store.state.comments = [{ userId: 'newer', message: 'keep me', createdAtMs: Date.now() }];
+      before = clone(store.state);
+      return true;
+    };
+    await page.w.importTransferFile({ text: async () => JSON.stringify({
+      format: 'abema-comment-analyzer-transfer', schemaVersion: 6,
+      data: { comments: [], mutedUsers: [], captureEnabled: true, userTags: {} }
+    }) });
+    assert.match(page.el('transferStatus').textContent, /新しい保存形式.*上書きできません/);
+    assert.deepEqual(store.state, before);
+    assert.equal(page.el('transferFile').value, '');
+  } finally { page.close(); }
+});
