@@ -40,6 +40,10 @@ PACKAGE_FILES = frozenset({
     "popup.js",
     "privacy.html",
     "user-tags.js",
+    "icons/icon-16.png",
+    "icons/icon-32.png",
+    "icons/icon-48.png",
+    "icons/icon-128.png",
 })
 HTML_FILES = frozenset({"popup.html", "dashboard.html", "guide.html", "privacy.html"})
 
@@ -137,6 +141,17 @@ def validate() -> str:
         path = ROOT / name
         if path.is_symlink() or not path.resolve().is_relative_to(ROOT.resolve()):
             raise ValueError(f"Unsafe packaged path: {name}")
+    # Chrome accepts raster images declared in the manifest; SVG icons are not
+    # supported. Validate the dimensions rather than trusting filenames.
+    import struct
+    for size in (16, 32, 48, 128):
+        icon = ROOT / f"icons/icon-{size}.png"
+        data = icon.read_bytes()
+        if (len(data) < 33 or data[:8] != b"\\x89PNG\\r\\n\\x1a\\n"
+                or data[12:16] != b"IHDR"
+                or struct.unpack(">II", data[16:24]) != (size, size)
+                or data[24:26] != b"\\x08\\x06"):
+            raise ValueError(f"Invalid RGBA PNG icon: {icon.name}")
     references = required_files(manifest)
     unexpected = sorted(references - PACKAGE_FILES)
     if unexpected:
