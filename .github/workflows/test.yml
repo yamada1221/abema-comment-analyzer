@@ -32,6 +32,8 @@ jobs:
         env:
           ABEMA_SCREENSHOT_DIR: test-results/screenshots
           ABEMA_PACKAGE_SMOKE_DIR: dist/review-unpacked
+      - name: Validate mock store screenshot geometry
+        run: python3 scripts/check_store_screenshots.py
       - name: Save mock-screen verification screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
