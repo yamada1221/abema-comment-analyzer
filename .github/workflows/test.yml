@@ -19,6 +19,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: node scripts/generate_icons.cjs --check
+      - run: node scripts/generate_store_tile.cjs --check
       - run: python3 scripts/package_extension.py --check
       - run: python3 -m unittest discover -s tests -p 'test_package_*.py' -v
       - name: Build and extract local review ZIP (never upload)
