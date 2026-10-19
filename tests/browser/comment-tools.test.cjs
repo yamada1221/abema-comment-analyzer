@@ -89,9 +89,26 @@ test('background capture protects tabs, saves received comments and supports rev
     // Fresh installs intentionally start with capture disabled. Wait for install
     // initialization, then exercise the actual user-facing opt-in control.
     await waitForStorage(worker,'captureEnabled',s=>s.captureEnabled===false);
+    // Opening ABEMA must not store comments before the user's first opt-in.
+    await context.route('https://abema.tv/**',route=>route.fulfill({contentType:'text/html',
+      body:'<!doctype html><html><head><title>模擬放送</title></head><body>Mock ABEMA</body></html>'}));
+    const beforeConsent=await context.newPage();
+    await beforeConsent.goto('https://abema.tv/now-on-air/abema-news');
+    await beforeConsent.evaluate(()=>window.postMessage({
+      source:'abema-comment-analyzer',type:'COMMENT',
+      payload:{id:'pre-consent',userId:'early-user',message:'同意前',createdAtMs:Date.now(),timestampReliable:true}
+    },'*'));
+    await beforeConsent.waitForTimeout(250);
+    const pre=await worker.evaluate(()=>chrome.storage.local.get(['comments','captureEnabled']));
+    assert.equal(pre.captureEnabled,false);
+    assert.equal((pre.comments||[]).length,0);
+    await beforeConsent.close();
+
     const popup=await context.newPage();
     await popup.goto(`chrome-extension://${id}/popup.html`);
     await popup.waitForFunction(()=>document.getElementById('toggle').textContent==='記録を開始');
+    assert.match(await popup.locator('#captureDisclosure').innerText(),/コメント本文・投稿者ID/);
+    assert.equal(await popup.locator('#toggle').isEnabled(),true);
     await popup.locator('#toggle').click();
     await waitForStorage(worker,'captureEnabled',s=>s.captureEnabled===true);
     await popup.close();
