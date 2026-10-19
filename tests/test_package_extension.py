@@ -26,7 +26,9 @@ class ReviewZipTest(unittest.TestCase):
         self.root = Path(self.tmp.name) / "project"
         self.root.mkdir()
         for filename in packager.PACKAGE_FILES:
-            (self.root / filename).write_bytes((REPO / filename).read_bytes())
+            destination = self.root / filename
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes((REPO / filename).read_bytes())
         self.patch_root = patch.object(packager, "ROOT", self.root)
         self.patch_root.start()
         self.addCleanup(self.patch_root.stop)
