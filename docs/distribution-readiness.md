@@ -67,6 +67,15 @@ python3 scripts/package_extension.py
 - 現状はChromeウェブストア用128×128アイコンと審査用画像、公開プライバシーポリシーURL、問い合わせ先が未用意。これらを揃える前に公開申請しない。
 - 申請前に既存ユーザーデータが維持される更新テストを確認する。CIでは記録OFFの維持とコメント・タグ・ミュート・番組設定の保持を検証しているが、実機での移行検証も必要。
 
+## 実際のレビューZIPを使うChromeテスト（2026-10-19）
+
+- `python3 scripts/package_extension.py` でローカルにレビューZIPを作成し、CI内の `dist/review-unpacked/` に展開する。ZIPと展開先はGitHubへアップロードしない。
+- `tests/browser/package-smoke.test.cjs` で**その展開先をChrome拡張として読み込み**、初期記録OFF・コメント記録の開始と停止・ポップアップの説明・ガイド・プライバシー画面・分析画面にページエラーがないことを検証する。
+- [GitHub Actions成功結果](https://github.com/yamada1221/abema-comment-analyzer/actions/runs/39246243752)：ZIP構成検査成功、Python 11件、Node.js 142件、模擬ブラウザ12件、合計165件成功。
+- `tests/browser/comment-tools.test.cjs` で架空コメントによる1280×800の参考スクリーンショットを収集。Actionsの `mock-screen-screenshots` アーティファクト（7日間）に保存。ただし実放送ではなく、提出用としてのデザイン・文言確認は未完了。
+
+**限界**: GitHub ActionsのChromeは模擬・オフライン動作であり、ABEMAの実放送、ストア審査、Chrome Web Storeから配布された署名済み拡張ID、既存利用者への本番更新を再現するものではない。
+
 ## ABEMAへの問い合わせ準備
 
 - [株式会社AbemaTVの公式窓口](https://abematv.co.jp/pages/394742/contact)に、サービスの問い合わせ先メールが掲載されている。
