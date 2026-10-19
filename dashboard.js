@@ -233,8 +233,11 @@ function validateTransferData(data) {
       optional(settings, key, value => /^([01]\d|2[0-3]):[0-5]\d$/.test(value), 'autoProgramSettings');
     }
   }
+  // The learning-memory writer retains at most 200 users x 40 comments.
+  // Import must enforce the same bound to avoid an oversized model payload.
   optional(data, 'learningMemory', value => value === null ||
-    (object(value) && value.version === 1 && Array.isArray(value.samples) && value.samples.every(comment)), 'data');
+    (object(value) && value.version === 1 && Array.isArray(value.samples) &&
+      value.samples.length <= 8000 && value.samples.every(comment)), 'data');
 }
 
 async function importTransferFile(file) {
