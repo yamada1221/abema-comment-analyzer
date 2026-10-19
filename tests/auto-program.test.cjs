@@ -464,3 +464,32 @@ test('a fresh install opts out of recording, but upgrades keep the saved capture
   await legacy.settle();
   assert.equal(legacy.data.captureEnabled, true);
 });
+
+
+test('updating an opted-out installation retains comments, tags, mutes and schedule', async () => {
+  const originalSettings = { enabled: false, keyword: '既存番組',
+    url: TARGET, days: [1, 3], startTime: '21:00', endTime: '23:00',
+    newsEnabled: false, cnnEnabled: false };
+  const h = harness({ capture: false, settings: originalSettings });
+  h.data.comments = [{ id: 'persist', userId: 'u', message: '保存済み', createdAtMs: Date.now() }];
+  h.data.userTags = { u: ['継続利用'] };
+  h.data.mutedUsers = ['muted'];
+  h.data.learningSelectedSamples = [{ id: 'sample', userId: 'u', message: '資料' }];
+  const before = structuredClone({
+    comments: h.data.comments, userTags: h.data.userTags, mutedUsers: h.data.mutedUsers,
+    learningSelectedSamples: h.data.learningSelectedSamples,
+    autoProgramSettings: h.data.autoProgramSettings
+  });
+  h.install({ reason: 'update', previousVersion: '0.13.1' });
+  await h.settle();
+  assert.equal(h.data.captureEnabled, false);
+  for (const [key, expected] of Object.entries(before))
+    assert.deepEqual(h.data[key], expected, `changed user data: ${key}`);
+  assert.equal(h.created.length, 0);
+
+  // Browser updates are not a new extension installation.
+  h.install({ reason: 'chrome_update' });
+  await h.settle();
+  assert.equal(h.data.captureEnabled, false);
+  assert.deepEqual(h.data.comments, before.comments);
+});
