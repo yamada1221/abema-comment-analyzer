@@ -34,7 +34,7 @@ class ReviewZipTest(unittest.TestCase):
     def test_validates_current_extension(self) -> None:
         actual = json.loads((self.root / "manifest.json").read_text("utf-8"))["version"]
         self.assertEqual(packager.validate(), actual)
-        self.assertEqual(len(packager.PACKAGE_FILES), 21)
+        self.assertEqual(len(packager.PACKAGE_FILES), 25)
 
     def test_archive_contains_only_allowlisted_files_and_is_reproducible(self) -> None:
         packager.validate()
@@ -53,6 +53,19 @@ class ReviewZipTest(unittest.TestCase):
             for excluded in ("package.json", ".github/workflows/test.yml", "tests/test_package_extension.py",
                              "docs/distribution-readiness.md", "node_modules/module.js"):
                 self.assertNotIn(excluded, archive.namelist())
+
+    def test_icon_pngs_have_exact_dimensions_and_no_bogus_bytes(self) -> None:
+        for size in (16, 32, 48, 128):
+            icon = self.root / f"icons/icon-{size}.png"
+            with self.subTest(size=size):
+                self.assertEqual(icon.read_bytes()[:8], bytes.fromhex("89504e470d0a1a0a"))
+                broken = icon.read_bytes()
+                icon.write_bytes(b"not a PNG")
+                with self.assertRaisesRegex(ValueError, "Invalid RGBA PNG icon"):
+                    packager.validate()
+                icon.write_bytes(broken)
+        self.assertEqual(packager.validate(),
+                         json.loads((self.root / "manifest.json").read_text("utf-8"))["version"])
 
     def test_missing_package_asset_is_rejected(self) -> None:
         (self.root / "content.js").unlink()
