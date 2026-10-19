@@ -445,6 +445,14 @@ async function setupAlarm() {
 
 chrome.runtime.onInstalled.addListener((details) => {
   (async () => {
+    // New installations must explicitly opt in before comment capture starts.
+    // Do not change the existing capture preference when upgrading.
+    if (details?.reason === 'install') {
+      const { captureEnabled } = await chrome.storage.local.get('captureEnabled');
+      if (typeof captureEnabled !== 'boolean') {
+        await chrome.storage.local.set({ captureEnabled: false });
+      }
+    }
     await setupAlarm();
     if (details?.reason === 'update' && details.previousVersion === '0.7.0') {
       await chrome.storage.local.remove('autoProgramLastCompletedWindowKey');
