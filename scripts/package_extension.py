@@ -25,6 +25,7 @@ PACKAGE_FILES = frozenset({
     "auto-program-schedules.js",
     "auto-user-tags.js",
     "comment-tools.js",
+    "csv-export.js",
     "content.js",
     "content.css",
     "dashboard.css",
