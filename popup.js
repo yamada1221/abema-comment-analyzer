@@ -13,7 +13,8 @@ $('toggle').onclick=async()=>{const d=await chrome.storage.local.get('captureEna
 $('clear').onclick=async()=>{await navigator.locks.request('abema-comment-history',()=>chrome.storage.local.set({comments:[],lastCommentAt:null}));render();};
 render();
 async function renderNetwork() {
-  const { networkCaptureStatus: s } = await chrome.storage.local.get('networkCaptureStatus');
+  const { networkCaptureStatus: s, captureEnabled } = await chrome.storage.local.get(['networkCaptureStatus', 'captureEnabled']);
+  if (captureEnabled !== true) { $('network').textContent = '記録OFF中は通信診断を表示しません。'; return; }
   if (!s) { $('network').textContent = '診断未受信。拡張機能とABEMAタブを再読み込みしてください。'; return; }
   $('network').textContent = [
     `対象: ${s.pageUrl}`,
