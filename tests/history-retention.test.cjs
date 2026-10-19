@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),vm=require(
 const source=fs.readFileSync(path.join(__dirname,'../content.js'),'utf8');
 const background=fs.readFileSync(path.join(__dirname,'../background.js'),'utf8');
 function harness(existing=[]) {
-  const state={comments:structuredClone(existing)}, locks=new Map();
+  const state={comments:structuredClone(existing),captureEnabled:true}, locks=new Map();
   let fail=false;
   const local={get:async()=>structuredClone(state),set:async update=>{
     if(fail){fail=false;throw new Error('temporary storage failure');}
