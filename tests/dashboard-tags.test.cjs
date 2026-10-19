@@ -265,6 +265,30 @@ test('malformed transfers never overwrite any existing data', async t => {
   });
 });
 
+test('learning-memory imports enforce the 200-user x 40-comment maximum', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    const saved = clone(store.state);
+    const one = { userId: 'trained', message: 'sample',
+      createdAtMs: Date.now() };
+    const transfer = {
+      format: 'abema-comment-analyzer-transfer',
+      schemaVersion: 6,
+      data: { learningMemory: { version: 1, samples: Array(8001).fill(one) } }
+    };
+    let confirmation = false;
+    page.w.confirm = () => { confirmation = true; return true; };
+    await page.w.importTransferFile({ text: async () => JSON.stringify(transfer) });
+    assert.match(page.el('transferStatus').textContent, /失敗/);
+    assert.equal(confirmation, false);
+    assert.deepEqual(store.state, saved);
+
+    // The writer's maximum legitimate number of samples remains supported.
+    transfer.data.learningMemory.samples.length = 8000;
+    assert.doesNotThrow(() => page.w.validateTransferData(transfer.data));
+  } finally { page.close(); }
+});
+
 test('valid boundary settings import without changing unrelated tags and comments', async () => {
   const store=fixture(), page=await dashboard(store);
   try {
