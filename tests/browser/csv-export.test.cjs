@@ -49,7 +49,7 @@ test('real dashboard CSV download neutralizes untrusted comment formula content'
     assert.ok(contents.includes('"\'=HYPERLINK(""https://example.test"",""click"")"'));
     assert.ok(contents.includes('"\'  @SUM(1,2)"'));
     assert.ok(contents.includes('日本語の普通のコメント'));
-    assert.ok(contents.includes('"[\'=タグ]"') === false, 'tags should remain valid JSON inside the quoted CSV cell');
+    assert.ok(contents.includes('"[""=タグ""]"'), 'tag list should remain JSON and quoted as CSV');
     assert.deepEqual(errors, []);
   } finally {
     await context.close();
