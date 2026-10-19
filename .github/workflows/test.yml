@@ -16,6 +16,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: python3 scripts/package_extension.py --check
+      - run: python3 -m unittest discover -s tests -p 'test_package_*.py' -v
       - run: npm ci
       - run: npm test
       - run: npx playwright install --with-deps chromium
