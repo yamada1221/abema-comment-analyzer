@@ -811,3 +811,27 @@ test('moderation settings saved from oversized inputs remain restorable from the
     }
   } finally { page.close(); }
 });
+
+test('restored commentId metadata keeps learning selection identifiable and reversible', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    for (const metadata of [{ commentId: 'legacy-chat' }, { commentId: 'chat', id: 'storage-id' }]) {
+      const comment = { userId: 'imported', message: '問題のある投稿を学習元に指定',
+        createdAtMs: Date.now() - 1000, ...metadata };
+      await page.w.importTransferFile({ text: async () => JSON.stringify({
+        format: 'abema-comment-analyzer-transfer', schemaVersion: 6,
+        data: { comments: [comment], learningSelectedSamples: { version: 1, samples: [] } }
+      }) });
+      assert.match(page.el('transferStatus').textContent, /引継ぎ完了/);
+      page.w.selectUser('imported');
+      await page.w.document.querySelector('[data-learncomment]').onclick();
+      await settle();
+      assert.equal(page.w.document.querySelector('[data-learncomment]').textContent, '学習指定を解除');
+      assert.equal(store.state.learningSelectedSamples.samples[0].commentId, metadata.commentId);
+      await page.w.document.querySelector('[data-learncomment]').onclick();
+      await settle();
+      assert.equal(store.state.learningSelectedSamples.samples.length, 0);
+      assert.equal(page.w.document.querySelector('[data-learncomment]').textContent, 'このコメントを学習');
+    }
+  } finally { page.close(); }
+});

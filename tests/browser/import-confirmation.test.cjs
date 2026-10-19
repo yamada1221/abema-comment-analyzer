@@ -31,7 +31,7 @@ test('a real Chrome backup import needs consent before restoring recording', {ti
       schemaVersion: 6,
       extensionVersion: '0.13.1',
       data: { captureEnabled:true, comments: [
-        { id:'imported',userId:'new',message:'data',createdAtMs:Date.now() }
+        { id:'imported',commentId:'chat-id',userId:'new',message:'学習元として指定するコメント',createdAtMs:Date.now() }
       ] }
     };
     const protectedKeys = ['comments', 'captureEnabled', 'userTags', 'mutedUsers',
@@ -73,6 +73,18 @@ test('a real Chrome backup import needs consent before restoring recording', {ti
       s.captureEnabled === true && s.comments?.[0]?.id === 'imported');
     state=await worker.evaluate(() => chrome.storage.local.get(['captureEnabled','comments']));
     assert.equal(state.comments[0].id,'imported');
+    await page.locator('tr[data-user="new"]').click();
+    await page.locator('[data-learncomment]').click();
+    await page.waitForFunction(() =>
+      document.querySelector('[data-learncomment]')?.textContent === '学習指定を解除');
+    const selected = await waitForStorage(worker, 'learningSelectedSamples', s =>
+      s.learningSelectedSamples?.samples.length === 1);
+    assert.equal(selected.learningSelectedSamples.samples[0].commentId, 'chat-id');
+    await page.locator('[data-learncomment]').click();
+    await waitForStorage(worker, 'learningSelectedSamples', s =>
+      s.learningSelectedSamples?.samples.length === 0);
+    await page.waitForFunction(() =>
+      document.querySelector('[data-learncomment]')?.textContent === 'このコメントを学習');
     assert.deepEqual(errors, []);
   } finally {
     await context.close();
