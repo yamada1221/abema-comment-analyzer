@@ -789,3 +789,25 @@ test('valid comment metadata and legacy minimal comments round-trip without bein
     assert.doesNotMatch(page.el('commentResults').innerHTML, /<b>literal text<\/b>/);
   } finally { page.close(); }
 });
+
+test('moderation settings saved from oversized inputs remain restorable from their own backup', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    for (const key of ['rateCount', 'rateWindowSec', 'duplicateCount', 'duplicateWindowSec',
+      'learningMinComments', 'learningMinMutedUsers']) page.el(key).value = '999999';
+    await page.el('saveModeration').onclick();
+    let backup;
+    page.w.download = (_name, text) => { backup = JSON.parse(text); };
+    await page.w.exportTransfer();
+    await page.w.importTransferFile({ text: async () => JSON.stringify(backup) });
+    assert.match(page.el('transferStatus').textContent, /引継ぎ完了/);
+    for (const key of ['rateCount', 'duplicateCount', 'learningMinComments', 'learningMinMutedUsers']) {
+      assert.equal(store.state.moderationSettings[key], 100000);
+      assert.equal(page.el(key).value, '100000');
+    }
+    for (const key of ['rateWindowSec', 'duplicateWindowSec']) {
+      assert.equal(store.state.moderationSettings[key], 86400);
+      assert.equal(page.el(key).value, '86400');
+    }
+  } finally { page.close(); }
+});
