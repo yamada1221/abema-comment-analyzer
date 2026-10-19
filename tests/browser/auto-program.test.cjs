@@ -204,6 +204,10 @@ test('concurrent capture messages preserve every batch and popup deletion clears
     const popup = await app.context.newPage();
     await popup.goto(app.dashboard.url().replace('dashboard.html', 'popup.html'));
     await popup.locator('#clear').click();
+    // The first click is informational and must not erase comment history.
+    assert.equal(await popup.locator('#clearConfirm').isVisible(), true);
+    assert.equal((await app.dashboard.evaluate(() => chrome.storage.local.get('comments'))).comments.length, 40);
+    await popup.locator('#confirmClear').click();
     await waitForStorage(app.dashboard, ['comments', 'lastCommentAt'],
       data => data.comments.length === 0 && data.lastCommentAt === null);
   } finally { await app.context.close(); }
