@@ -18,6 +18,16 @@ test('review ZIP installs as a real extension with opt-in and linked guidance',
     assert.equal(manifest.manifest_version, 3);
     assert.equal(manifest.host_permissions.length, 1);
     assert.equal(manifest.host_permissions[0], 'https://abema.tv/*');
+    for (const size of [16, 32, 48, 128]) {
+      const filename = `icons/icon-${size}.png`;
+      assert.equal(manifest.icons?.[size], filename);
+      const binary = await fs.readFile(path.join(root, filename));
+      assert.equal(binary.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+      assert.equal(binary.readUInt32BE(16), size);
+      assert.equal(binary.readUInt32BE(20), size);
+      assert.equal(binary.readUInt8(25), 6, 'icon must be RGBA');
+    }
+    assert.equal(manifest.action.default_icon['16'], 'icons/icon-16.png');
     // A packaged extension must not accidentally include development sources.
     const members = await fs.readdir(root);
     for (const forbidden of ['tests', 'docs', 'node_modules', 'package.json',
