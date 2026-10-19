@@ -54,8 +54,8 @@ test('Chrome extension settings persist and clamp without changing tags or exclu
     page.once('dialog', dialog => { restorePrompt = dialog.message(); dialog.accept(); });
     await page.locator('#transferFile').setInputFiles({ name: 'backup.json',
       mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(valid)) });
-    assert.match(restorePrompt, /上書きされます/);
     await page.waitForFunction(() => document.getElementById('transferStatus').textContent.includes('引継ぎ完了'));
+    assert.match(restorePrompt, /上書きされます/);
     await page.reload();
     await page.waitForFunction(() => document.getElementById('total').textContent === '1');
     const restored = await page.evaluate(() => chrome.storage.local.get(['comments', 'mutedUsers', 'userTags', 'moderationSettings']));
