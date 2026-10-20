@@ -20,6 +20,14 @@ spec.loader.exec_module(packager)
 
 
 class ReviewZipTest(unittest.TestCase):
+    def make_symlink(self, link: Path, target: Path, *, directory: bool = False) -> None:
+        try:
+            link.symlink_to(target, target_is_directory=directory)
+        except OSError as error:
+            if getattr(error, "winerror", None) == 1314:
+                self.skipTest("Windows account cannot create symlinks; covered by Linux CI")
+            raise
+
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -106,6 +114,7 @@ class ReviewZipTest(unittest.TestCase):
         baseline = json.loads(file.read_text("utf-8"))
         for field, value, error in (
             ("permissions", baseline["permissions"] + ["history"], "Unexpected extension permission"),
+            ("permissions", baseline["permissions"] + ["tabs"], "Unexpected extension permission"),
             ("optional_host_permissions", ["https://example.org/*"], "Unexpected extension permission"),
             ("content_scripts", [
                 {**baseline["content_scripts"][0], "matches": ["<all_urls>"]},
@@ -130,7 +139,7 @@ class ReviewZipTest(unittest.TestCase):
         target = self.root / "other.js"
         target.write_text("malicious", encoding="utf-8")
         asset.unlink()
-        asset.symlink_to(target)
+        self.make_symlink(asset, target)
         with self.assertRaisesRegex(ValueError, "Unsafe packaged path"):
             packager.validate()
 
@@ -154,13 +163,13 @@ class ReviewZipTest(unittest.TestCase):
         actual = self.root / "existing.zip"
         actual.write_bytes(b"preserve")
         destination = dist / "review.zip"
-        destination.symlink_to(actual)
+        self.make_symlink(destination, actual)
         with self.assertRaisesRegex(ValueError, "Review ZIP"):
             packager.build(destination)
         self.assertEqual(actual.read_bytes(), b"preserve")
         destination.unlink()
         dist.rmdir()
-        dist.symlink_to(self.root, target_is_directory=True)
+        self.make_symlink(dist, self.root, directory=True)
         with self.assertRaisesRegex(ValueError, "Unsafe dist directory"):
             packager.build(dist / "review.zip")
 

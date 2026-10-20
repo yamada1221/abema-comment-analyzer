@@ -1,6 +1,6 @@
 {
   "name": "abema-comment-analyzer",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.cjs",

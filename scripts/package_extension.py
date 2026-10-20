@@ -129,7 +129,7 @@ def validate() -> str:
     if manifest.get("host_permissions") != ["https://abema.tv/*"]:
         raise ValueError("Unexpected host permission scope")
     if set(manifest.get("permissions", [])) != {
-        "storage", "tabs", "alarms", "unlimitedStorage"
+        "storage", "alarms", "unlimitedStorage"
     } or manifest.get("optional_permissions") or manifest.get("optional_host_permissions"):
         raise ValueError("Unexpected extension permission scope")
     for item in manifest.get("content_scripts", []):
