@@ -1,0 +1,40 @@
+{
+  "format": "abema-comment-analyzer-transfer",
+  "schemaVersion": 6,
+  "extensionVersion": "0.13.2",
+  "exportedAt": "2026-01-01T00:04:00.000Z",
+  "data": {
+    "captureEnabled": false,
+    "analysisWindowMinutes": 60,
+    "mutedUsers": [],
+    "learningAutoMutedUsers": [],
+    "autoProgramSettings": { "enabled": false },
+    "moderationSettings": { "enabled": false, "learningEnabled": false },
+    "autoTagSettings": { "enabled": false, "rules": [] },
+    "userTags": {
+      "demo_user_01": ["科学"],
+      "demo_user_03": ["科学", "メモ"],
+      "demo_user_04": ["交通"]
+    },
+    "comments": [
+      { "id": "demo-comment-1", "userId": "demo_user_01", "message": "宇宙の特集、次の図解も見てみたい", "createdAtMs": 1767225600000, "observedAt": 1767225600000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-2", "userId": "demo_user_02", "message": "図解が分かりやすいですね", "createdAtMs": 1767225612000, "observedAt": 1767225612000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-3", "userId": "demo_user_03", "message": "宇宙の広さを想像すると面白い", "createdAtMs": 1767225624000, "observedAt": 1767225624000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-4", "userId": "demo_user_04", "message": "交通情報を確認できて助かりました", "createdAtMs": 1767225636000, "observedAt": 1767225636000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-5", "userId": "demo_user_05", "message": "次の特集も楽しみにしています", "createdAtMs": 1767225648000, "observedAt": 1767225648000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-6", "userId": "demo_user_06", "message": "データの比較が見やすいです", "createdAtMs": 1767225660000, "observedAt": 1767225660000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-7", "userId": "demo_user_01", "message": "宇宙の特集、次の図解も見てみたい", "createdAtMs": 1767225672000, "observedAt": 1767225672000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-8", "userId": "demo_user_02", "message": "図解が分かりやすいですね", "createdAtMs": 1767225684000, "observedAt": 1767225684000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-9", "userId": "demo_user_03", "message": "宇宙の広さを想像すると面白い", "createdAtMs": 1767225696000, "observedAt": 1767225696000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-10", "userId": "demo_user_04", "message": "交通情報を確認できて助かりました", "createdAtMs": 1767225708000, "observedAt": 1767225708000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-11", "userId": "demo_user_05", "message": "次の特集も楽しみにしています", "createdAtMs": 1767225720000, "observedAt": 1767225720000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-12", "userId": "demo_user_06", "message": "データの比較が見やすいです", "createdAtMs": 1767225732000, "observedAt": 1767225732000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-13", "userId": "demo_user_01", "message": "宇宙の特集、次の図解も見てみたい", "createdAtMs": 1767225744000, "observedAt": 1767225744000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-14", "userId": "demo_user_02", "message": "図解が分かりやすいですね", "createdAtMs": 1767225756000, "observedAt": 1767225756000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-15", "userId": "demo_user_03", "message": "宇宙の広さを想像すると面白い", "createdAtMs": 1767225768000, "observedAt": 1767225768000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-16", "userId": "demo_user_04", "message": "交通情報を確認できて助かりました", "createdAtMs": 1767225780000, "observedAt": 1767225780000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-17", "userId": "demo_user_05", "message": "次の特集も楽しみにしています", "createdAtMs": 1767225792000, "observedAt": 1767225792000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" },
+      { "id": "demo-comment-18", "userId": "demo_user_06", "message": "データの比較が見やすいです", "createdAtMs": 1767225804000, "observedAt": 1767225804000, "timestampReliable": true, "pageTitle": "サンプル番組（架空データ）" }
+    ]
+  }
+}

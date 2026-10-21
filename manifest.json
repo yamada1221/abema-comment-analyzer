@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ABEMA Comment Analyzer",
+  "name": "ABEMAコメント分析（非公式）",
   "version": "0.13.2",
-  "description": "ABEMAのコメントをローカルに記録・集計し、投稿者単位で分析・自動ミュートします。",
+  "description": "ABEMAのコメントを端末内に記録し、本文検索・投稿者タグ・リプレイ・ミュートができる非公式拡張機能です。",
   "permissions": [
     "storage",
     "alarms",
@@ -12,7 +12,7 @@
     "https://abema.tv/*"
   ],
   "action": {
-    "default_title": "ABEMA Comment Analyzer",
+    "default_title": "ABEMAコメント分析（非公式）",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",

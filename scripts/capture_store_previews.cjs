@@ -10,7 +10,7 @@ const { waitForStorage } = require('../tests/browser/helpers.cjs');
 const REPO = path.resolve(__dirname, '..');
 const ROOT = path.resolve(REPO, process.env.ABEMA_PACKAGE_SMOKE_DIR || 'dist/review-unpacked');
 const OUTPUT = path.join(REPO, 'test-results/store-previews');
-const LABEL = '未公開プレビュー ・ 架空データ ・ 実放送の確認画像ではありません';
+const LABEL = '表示例：架空データ ・ 実放送の確認画像ではありません';
 
 async function capture(page, name, section) {
   if (section) await page.locator(section).evaluate(element =>
@@ -52,25 +52,19 @@ async function main() {
       await context.waitForEvent('serviceworker', { timeout: 15000 });
     const id = new URL(worker.url()).host;
     await waitForStorage(worker, 'captureEnabled', state => state.captureEnabled === false);
-    const baseTime = Date.now() - 5 * 60_000;
-    const messages = ['宇宙の特集、次の図解も見てみたい', '図解が分かりやすいですね',
-      '宇宙の広さを想像すると面白い', '交通情報を確認できて助かりました',
-      '次の特集も楽しみにしています', 'データの比較が見やすいです'];
-    const comments = Array.from({ length: 18 }, (_, i) => ({
-      id: `demo-comment-${i + 1}`, userId: `demo_user_0${i % 6 + 1}`,
-      message: messages[i % messages.length], createdAtMs: baseTime + i * 12_000,
-      observedAt: baseTime + i * 12_000, timestampReliable: true,
-      pageTitle: 'サンプル番組（架空データ）'
-    }));
-    await worker.evaluate(state => chrome.storage.local.set(state), {
-      comments, captureEnabled: false, mutedUsers: [], analysisWindowMinutes: 60,
-      userTags: { demo_user_01: ['科学'], demo_user_03: ['科学', 'メモ'], demo_user_04: ['交通'] },
-      autoTagSettings: { enabled: false, rules: [] },
-      autoProgramSettings: { enabled: false },
-      moderationSettings: { enabled: false, learningEnabled: false }
-    });
     const page = await context.newPage();
     await page.goto(`chrome-extension://${id}/dashboard.html`);
+    // Exercise the same file import that a reviewer can use without live ABEMA.
+    page.once('dialog', async dialog => {
+      assert.equal(dialog.type(), 'confirm');
+      assert.ok(dialog.message().includes('上書き'));
+      await dialog.accept();
+    });
+    await page.locator('#transferFile').setInputFiles(
+      path.join(REPO, 'store-assets/reviewer-demo-v0.13.2.json'));
+    await page.waitForFunction(() => document.getElementById('transferStatus').textContent.includes('引継ぎ完了'));
+    await waitForStorage(worker, 'captureEnabled', state => state.captureEnabled === false);
+    await waitForStorage(worker, 'autoProgramSettings', state => state.autoProgramSettings?.enabled === false);
     await page.waitForFunction(() => document.getElementById('total').textContent === '18');
     await label(page);
     files.push(await capture(page, '01-overview'));
