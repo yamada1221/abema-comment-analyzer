@@ -11,7 +11,7 @@ async function harness(hidden=true) {
         if(release)await new Promise(resolve=>{release=resolve;});
         if(fail){fail=false;throw new Error('temporary failure');}
         writes.push(structuredClone(message));return {ok:true};
-      }},storage:{local:{get:async()=>({}),set:async()=>{}},onChanged:{addListener:fn=>changes.push(fn)}}}
+      }},storage:{local:{get:async()=>({captureEnabled:true}),set:async()=>{}},onChanged:{addListener:fn=>changes.push(fn)}}}
   });
   vm.runInContext(source,ctx);await settle();
   return {document,writes,events,failNext:()=>fail=true,hold:()=>release=true,release:()=>{const fn=release;release=null;fn();},

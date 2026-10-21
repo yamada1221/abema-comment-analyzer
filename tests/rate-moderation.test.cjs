@@ -49,13 +49,16 @@ test('duplicate rule also ignores unreliable times and repeated notifications',(
 test('bridge marks fallback timestamps as unreliable and preserves real posting time',()=>{
   const src=fs.readFileSync(path.join(__dirname,'../page-bridge.js'),'utf8');
   const payloads=[];
-  const ctx=vm.createContext({SOURCE:'test',seen:new Set(),oldestSeenAt:Infinity,window:{postMessage:d=>payloads.push(d.payload)}});
+  const ctx=vm.createContext({SOURCE:'test',captureAllowed:true,seen:new Set(),oldestSeenAt:Infinity,window:{postMessage:d=>payloads.push(d.payload)}});
   vm.runInContext(src.slice(src.indexOf('  function commentKey'),src.indexOf('  function getText')),ctx);
   ctx.emitComment({id:'unknown',userId:'u',message:'old'});
   ctx.emitComment({id:'known',userId:'u',message:'new',createdAtMs:now});
   assert.equal(payloads[0].timestampReliable,false);
   assert.equal(payloads[1].timestampReliable,true);
   assert.equal(payloads[1].createdAtMs,now);
+  ctx.captureAllowed = false;
+  assert.equal(ctx.emitComment({id:'stopped',userId:'u',message:'ignored'}),false);
+  assert.equal(payloads.length,2);
 });
 
 const emoji='\u{1F600}';

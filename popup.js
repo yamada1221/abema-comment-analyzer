@@ -1,19 +1,63 @@
 const $ = (id) => document.getElementById(id);
+let changingCapture = false;
 async function render(){
   const d=await chrome.storage.local.get(['comments','captureEnabled','lastCommentAt','backgroundCaptureStatus']);
   const now=Date.now(); const comments=(d.comments||[]).filter(c=>now-(c.observedAt||c.createdAtMs)<=30*24*3600000);
   $('count').textContent=comments.length; $('users').textContent=new Set(comments.map(c=>c.userId)).size;
   const b=d.backgroundCaptureStatus;
   $('backgroundStatus').textContent=b?(b.enabled?`バックグラウンド接続 ${b.connected}/${b.tabs}タブ / 保存待ち ${b.pending}件`:'コメント記録は停止中です。'):'バックグラウンド確認待ち';
-  const enabled=d.captureEnabled!==false; $('toggle').textContent=enabled?'記録を停止':'記録を開始';
+  const enabled=d.captureEnabled===true; $('toggle').textContent=enabled?'記録を停止':'記録を開始'; $('toggle').disabled=changingCapture;
   $('status').innerHTML=d.lastCommentAt?`<span class="ok">● 受信あり</span> 最終 ${new Date(d.lastCommentAt).toLocaleTimeString()}`:'<span class="warn">● まだコメント未検出</span>';
 }
 $('open').onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL('dashboard.html')});
-$('toggle').onclick=async()=>{const d=await chrome.storage.local.get('captureEnabled');await chrome.storage.local.set({captureEnabled:d.captureEnabled===false});render();};
-$('clear').onclick=async()=>{await navigator.locks.request('abema-comment-history',()=>chrome.storage.local.set({comments:[],lastCommentAt:null}));render();};
+$('toggle').onclick=async()=>{
+  if(changingCapture)return;
+  changingCapture=true;
+  $('toggle').disabled=true;
+  $('captureStatus').textContent='記録設定を変更しています…';
+  try{
+    const d=await chrome.storage.local.get('captureEnabled');
+    const result=await chrome.runtime.sendMessage({source:'abema-comment-analyzer',type:'SET_CAPTURE_ENABLED',enabled:d.captureEnabled!==true});
+    if(!result?.ok)throw new Error(result?.error||'バックグラウンド処理に接続できません');
+    $('captureStatus').textContent=result.enabled?'記録を開始しました。':'記録を停止しました。';
+  }catch(error){
+    $('captureStatus').textContent='記録の切り替えに失敗しました。拡張機能を再読み込みして再試行してください。';
+  }finally{
+    changingCapture=false;
+    await render();
+  }
+};
+// A data-destructive action must never be triggered by a single ambiguous click.
+// Only recorded comments are deleted; tags, mutes and schedule settings remain.
+let clearingHistory = false;
+$('clear').onclick=()=>{if(clearingHistory)return;$('clearConfirm').hidden=false;$('clearStatus').textContent='';};
+$('cancelClear').onclick=()=>{if(clearingHistory)return;$('clearConfirm').hidden=true;$('clearStatus').textContent='';};
+$('confirmClear').onclick=async()=>{
+  if(clearingHistory)return;
+  clearingHistory=true;
+  $('confirmClear').disabled=true;
+  $('cancelClear').disabled=true;
+  $('clear').disabled=true;
+  $('clearStatus').textContent='コメント履歴を削除しています…';
+  try{
+    await navigator.locks.request('abema-comment-history',()=>chrome.storage.local.set({comments:[],lastCommentAt:null}));
+    $('clearConfirm').hidden=true;
+    $('clearStatus').textContent='コメント履歴を削除しました。タグ・ミュート・学習用データ・設定は保持されています。';
+    await render();
+  }catch(error){
+    $('clearStatus').textContent='削除に失敗しました。再試行してください。';
+    console.warn('[ABEMA] Comment history deletion failed:',error);
+  }finally{
+    clearingHistory=false;
+    $('confirmClear').disabled=false;
+    $('cancelClear').disabled=false;
+    $('clear').disabled=false;
+  }
+};
 render();
 async function renderNetwork() {
-  const { networkCaptureStatus: s } = await chrome.storage.local.get('networkCaptureStatus');
+  const { networkCaptureStatus: s, captureEnabled } = await chrome.storage.local.get(['networkCaptureStatus', 'captureEnabled']);
+  if (captureEnabled !== true) { $('network').textContent = '記録OFF中は通信診断を表示しません。'; return; }
   if (!s) { $('network').textContent = '診断未受信。拡張機能とABEMAタブを再読み込みしてください。'; return; }
   $('network').textContent = [
     `対象: ${s.pageUrl}`,
@@ -49,5 +93,5 @@ renderNetwork();
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   if (changes.comments || changes.captureEnabled || changes.backgroundCaptureStatus) render();
-  if (changes.networkCaptureStatus) renderNetwork();
+  if (changes.networkCaptureStatus || changes.captureEnabled) renderNetwork();
 });

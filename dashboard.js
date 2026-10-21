@@ -168,15 +168,23 @@ function validateTransferData(data) {
     if (Object.hasOwn(value, key)) check(valid(value[key]), `${prefix}.${key}`);
   };
   const comment = value => object(value) && id(value.userId) && typeof value.message === 'string' &&
-    ['createdAtMs', 'observedAt'].every(key => !Object.hasOwn(value, key) || time(value[key]));
+    ['createdAtMs', 'observedAt'].every(key => !Object.hasOwn(value, key) || time(value[key])) &&
+    ['pageUrl', 'pageTitle'].every(key => !Object.hasOwn(value, key) || typeof value[key] === 'string') &&
+    ['id', 'commentId'].every(key => !Object.hasOwn(value, key) ||
+      typeof value[key] === 'string' || (typeof value[key] === 'number' && Number.isFinite(value[key]))) &&
+    ['timestampReliable', 'isOwner'].every(key => !Object.hasOwn(value, key) || typeof value[key] === 'boolean');
   check(object(data), 'data');
   if (Object.hasOwn(data, 'autoTagSettings')) ABEMACommentTools.normalizeTagSettings(data.autoTagSettings);
   if (Object.hasOwn(data, 'autoLabelSettings')) ABEMACommentTools.migrateLabelSettings(data.autoLabelSettings);
   if (Object.hasOwn(data, 'autoTagExclusions')) ABEMAAutoUserTags.normalizeExclusions(data.autoTagExclusions);
-  optional(data, 'comments', value => Array.isArray(value) && value.every(comment), 'data');
+  // Match the actual 100,000-comment retention cap when restoring backups.
+  // Validate before any storage write, rather than silently truncating a backup.
+  optional(data, 'comments', value => Array.isArray(value) &&
+    value.length <= 100000 && value.every(comment), 'data');
   for (const key of ['mutedUsers', 'learningAutoMutedUsers']) optional(data, key, ids, 'data');
   optional(data, 'captureEnabled', value => typeof value === 'boolean', 'data');
-  optional(data, 'analysisWindowMinutes', value => Number.isFinite(value) && value > 0, 'data');
+  optional(data, 'analysisWindowMinutes', value =>
+    Number.isFinite(value) && value >= 1 && value <= MAX_WINDOW_MINUTES, 'data');
   optional(data, 'lastCommentAt', value => value === null || time(value), 'data');
   optional(data, 'autoMuteLog', value => Array.isArray(value) && value.every(entry =>
     object(entry) && id(entry.userId) && typeof entry.reason === 'string' &&
@@ -184,18 +192,36 @@ function validateTransferData(data) {
   if (Object.hasOwn(data, 'moderationSettings')) {
     const settings = data.moderationSettings;
     check(object(settings), 'moderationSettings');
+    // Settings imported from a file bypass the dashboard's input clamps.
+    // Reject negative, unbounded and out-of-range values before any write.
+    const countKeys = new Set(['emojiCount', 'rateCount', 'duplicateCount',
+      'learningMinComments', 'learningMinMutedUsers', 'learningMaxCommentsPerUser']);
+    const secondsKeys = new Set(['emojiWindowSec', 'rateWindowSec', 'duplicateWindowSec']);
+    const thresholdKeys = new Set(['learningCandidateThreshold', 'learningSelectedMatchThreshold',
+      'learningAutoMuteThreshold', 'learningNormalPenalty']);
     for (const [key, fallback] of Object.entries(DEFAULT_MODERATION)) {
-      optional(settings, key, Array.isArray(fallback) ? strings :
-        typeof fallback === 'number' ? Number.isFinite : value => typeof value === typeof fallback,
-      'moderationSettings');
+      let validator;
+      if (Array.isArray(fallback)) validator = strings;
+      else if (typeof fallback === 'number') {
+        validator = value => Number.isFinite(value) && (
+          countKeys.has(key) ? value >= (key === 'rateCount' || key === 'duplicateCount' ||
+            key === 'learningMinComments' ? 2 : 1) && value <= 100000 :
+          secondsKeys.has(key) ? value >= 1 && value <= 86400 :
+          thresholdKeys.has(key) ? value >= 0 && value <= 1 :
+          value >= 0 && value <= 100000
+        );
+      } else validator = value => typeof value === typeof fallback;
+      optional(settings, key, validator, 'moderationSettings');
     }
   }
   if (Object.hasOwn(data, 'autoProgramSettings')) {
     const settings = data.autoProgramSettings;
     check(object(settings), 'autoProgramSettings');
     for (const [key, fallback] of Object.entries(DEFAULT_AUTO_PROGRAM)) {
-      if (key !== 'days') optional(settings, key, typeof fallback === 'number' ? Number.isFinite :
-        value => typeof value === typeof fallback, 'autoProgramSettings');
+      if (key !== 'days') optional(settings, key,
+        typeof fallback === 'number' ? value => Number.isInteger(value) &&
+          value >= 1 && value <= 1000 :
+          value => typeof value === typeof fallback, 'autoProgramSettings');
     }
     optional(settings, 'days', value => Array.isArray(value) &&
       value.every(day => Number.isInteger(day) && day >= 0 && day <= 6), 'autoProgramSettings');
@@ -207,14 +233,26 @@ function validateTransferData(data) {
       optional(settings, key, value => /^([01]\d|2[0-3]):[0-5]\d$/.test(value), 'autoProgramSettings');
     }
   }
+  // The learning-memory writer retains at most 200 users x 40 comments.
+  // Import must enforce the same bound to avoid an oversized model payload.
   optional(data, 'learningMemory', value => value === null ||
-    (object(value) && value.version === 1 && Array.isArray(value.samples) && value.samples.every(comment)), 'data');
+    (object(value) && value.version === 1 && Array.isArray(value.samples) &&
+      value.samples.length <= 8000 && value.samples.every(comment)), 'data');
 }
 
 async function importTransferFile(file) {
   try {
     if (!file) return;
-    const payload = JSON.parse(await file.text());
+    // A malformed or gigantic backup must not exhaust Chrome memory by default.
+    const maxBytes = 256 * 1024 * 1024;
+    if (Number.isFinite(file.size) && file.size > maxBytes) {
+      throw new Error('256MBを超える引継ぎファイルは読み込めません');
+    }
+    const jsonText = await file.text();
+    if (typeof jsonText !== 'string' || jsonText.length > maxBytes) {
+      throw new Error('引継ぎファイルが大きすぎるか読み込めません');
+    }
+    const payload = JSON.parse(jsonText);
     if (!payload || payload.format !== TRANSFER_FORMAT) {
       throw new Error('ABEMA Comment Analyzerの引継ぎファイルではありません');
     }
@@ -225,6 +263,18 @@ async function importTransferFile(file) {
     }
     // Validate every imported field before the first storage write.
     validateTransferData(payload.data);
+    const recording = payload.data.captureEnabled === true;
+    const schedule = payload.data.autoProgramSettings?.enabled === true;
+    const effects = [
+      '現在保存しているコメント・タグ・ミュート・設定の一部が上書きされます。',
+      recording ? '復元後、コメント記録がONになります。' : '',
+      schedule ? '復元後、指定番組の自動起動・記録設定がONになります。' : '',
+      '引継ぎデータを復元しますか？'
+    ].filter(Boolean).join('\n');
+    if (!window.confirm(effects)) {
+      setTransferStatus('引継ぎをキャンセルしました。既存データは変更していません。');
+      return;
+    }
     const restore = {};
     for (const key of TRANSFER_KEYS) {
       if (Object.hasOwn(payload.data, key)) restore[key] = payload.data[key];
@@ -234,6 +284,12 @@ async function importTransferFile(file) {
     }
     restore.storageSchemaVersion = STORAGE_SCHEMA_VERSION;
     restore.lastTransferImportAt = Date.now();
+    // Notify the session writer even if captureEnabled already has this value.
+    // A partial backup without a recording flag must keep the original preference.
+    restore.lastTransferCapturePreference = {
+      importedAt: restore.lastTransferImportAt,
+      enabled: Object.hasOwn(restore, 'captureEnabled') ? restore.captureEnabled : null
+    };
     restore.lastTransferSourceVersion = String(payload.extensionVersion || 'unknown');
     if (Object.hasOwn(restore, 'userTags')) restore.userTags = ABEMAUserTags.normalizeMap(restore.userTags);
     if (Object.hasOwn(restore, 'learningSelectedSamples')) {
@@ -247,7 +303,15 @@ async function importTransferFile(file) {
           [...(restore.learningAutoMutedUsers || existing.learningAutoMutedUsers || []),
             ...((restore.moderationSettings || existing.moderationSettings || {}).whitelistUsers || [])]);
       }
-      await navigator.locks.request('abema-comment-history', () => chrome.storage.local.set(restore));
+      await navigator.locks.request('abema-comment-history', async () => {
+        // Re-read under the write lock: another page may have upgraded storage
+        // while the file was being read or the confirmation was open.
+        const current = await chrome.storage.local.get('storageSchemaVersion');
+        if (Number(current.storageSchemaVersion) > STORAGE_SCHEMA_VERSION) {
+          throw new Error('新しい保存形式のデータは上書きできません。拡張機能を最新版へ更新してください。');
+        }
+        await chrome.storage.local.set(restore);
+      });
     }));
     setTransferStatus(`引継ぎ完了: v${payload.extensionVersion || '?'} のデータを復元しました。コメント ${restore.comments?.length || 0}件、ミュート ${restore.mutedUsers?.length || 0}件。${Object.hasOwn(restore, 'userTags') ? 'タグも復元しました。' : '旧形式のため現在のタグは保持しました。'}`);
     await ABEMAAutoUserTags.refresh();
@@ -337,12 +401,18 @@ $('stopAutoProgram').onclick=async()=>{try{await chrome.runtime.sendMessage({sou
 
 $('openCommentPanelTest').onclick=async()=>{const id=Date.now();const tab=await findAbemaTab();if(!tab?.id){const p={status:'error',requestId:id,message:'ABEMAタブが見つかりません。ABEMAの視聴画面を開いてください。',updatedAt:id};await chrome.storage.local.set({commentPanelOpenStatus:p});renderCommentPanelOpenStatus(p);return;}const p={status:'starting',requestId:id,message:`ABEMAタブを検出しました: ${tab.title||'ABEMA'}`,updatedAt:id};await chrome.storage.local.set({commentPanelOpenStatus:p});renderCommentPanelOpenStatus(p);try{await chrome.tabs.sendMessage(tab.id,{source:'abema-comment-analyzer',type:'OPEN_COMMENT_PANEL_REQUEST',requestId:id});}catch(e){const err={status:'error',requestId:id,message:'ABEMAタブへ接続できません。拡張機能を更新後、ABEMAタブを再読み込みしてから再試行してください。',updatedAt:Date.now()};await chrome.storage.local.set({commentPanelOpenStatus:err});renderCommentPanelOpenStatus(err);}};
 $('exportTransfer').onclick=exportTransfer;$('importTransfer').onclick=()=>$('transferFile').click();$('transferFile').onchange=e=>importTransferFile(e.target.files?.[0]);
-$('saveModeration').onclick=async()=>{const settings={enabled:$('modEnabled').checked,emojiEnabled:$('emojiEnabled').checked,emojiCount:Math.min(100,Math.max(1,Math.round(Number($('emojiCount').value)||3))),emojiWindowSec:Math.min(86400,Math.max(1,Math.round(Number($('emojiWindowSec').value)||120))),rateEnabled:$('rateEnabled').checked,rateCount:Math.max(2,Number($('rateCount').value)||8),rateWindowSec:Math.max(1,Number($('rateWindowSec').value)||30),duplicateEnabled:$('duplicateEnabled').checked,duplicateCount:Math.max(2,Number($('duplicateCount').value)||3),duplicateWindowSec:Math.max(1,Number($('duplicateWindowSec').value)||60),ngEnabled:$('ngEnabled').checked,ngWords:lines($('ngWords').value),whitelistUsers:lines($('whitelistUsers').value),learningEnabled:$('learningEnabled').checked,learningMinComments:Math.max(2,Number($('learningMinComments').value)||5),learningMinMutedUsers:Math.max(1,Number($('learningMinMutedUsers').value)||3),learningMaxCommentsPerUser:40,learningCandidateThreshold:Math.max(0.01,Math.min(0.99,(Number($('learningCandidateThreshold').value)||25)/100)),learningSelectedMatchThreshold:Math.max(0.10,Math.min(1,(Number($('learningSelectedMatchThreshold').value)||70)/100)),learningAutoMute:$('learningAutoMute').checked,learningAutoMuteThreshold:Math.max(0.01,Math.min(1,(Number($('learningAutoMuteThreshold').value)||40)/100)),learningNormalPenalty:0.75};learningLastRun=0;await chrome.storage.local.set({moderationSettings:settings,learningRebuildRequest:Date.now()});$('moderationSaved').textContent='保存しました';renderLearningCandidates(settings,true);setTimeout(()=>$('moderationSaved').textContent='',1800);};
+$('saveModeration').onclick=async()=>{const settings={enabled:$('modEnabled').checked,emojiEnabled:$('emojiEnabled').checked,emojiCount:Math.min(100,Math.max(1,Math.round(Number($('emojiCount').value)||3))),emojiWindowSec:Math.min(86400,Math.max(1,Math.round(Number($('emojiWindowSec').value)||120))),rateEnabled:$('rateEnabled').checked,rateCount:Math.min(100000,Math.max(2,Number($('rateCount').value)||8)),rateWindowSec:Math.min(86400,Math.max(1,Number($('rateWindowSec').value)||30)),duplicateEnabled:$('duplicateEnabled').checked,duplicateCount:Math.min(100000,Math.max(2,Number($('duplicateCount').value)||3)),duplicateWindowSec:Math.min(86400,Math.max(1,Number($('duplicateWindowSec').value)||60)),ngEnabled:$('ngEnabled').checked,ngWords:lines($('ngWords').value),whitelistUsers:lines($('whitelistUsers').value),learningEnabled:$('learningEnabled').checked,learningMinComments:Math.min(100000,Math.max(2,Number($('learningMinComments').value)||5)),learningMinMutedUsers:Math.min(100000,Math.max(1,Number($('learningMinMutedUsers').value)||3)),learningMaxCommentsPerUser:40,learningCandidateThreshold:Math.max(0.01,Math.min(0.99,(Number($('learningCandidateThreshold').value)||25)/100)),learningSelectedMatchThreshold:Math.max(0.10,Math.min(1,(Number($('learningSelectedMatchThreshold').value)||70)/100)),learningAutoMute:$('learningAutoMute').checked,learningAutoMuteThreshold:Math.max(0.01,Math.min(1,(Number($('learningAutoMuteThreshold').value)||40)/100)),learningNormalPenalty:0.75};learningLastRun=0;await chrome.storage.local.set({moderationSettings:settings,learningRebuildRequest:Date.now()});renderModerationSettings(settings);$('moderationSaved').textContent='保存しました';renderLearningCandidates(settings,true);setTimeout(()=>$('moderationSaved').textContent='',1800);};
 $('applyWindow').onclick=async()=>{const raw=$('historyAnchor').value;const anchor=raw?Date.parse(raw+'+09:00'):null;if(raw&&!Number.isFinite(anchor)){$('historyRangeStatus').textContent='基準日時を確認してください。';return;}fixedHistoryAnchor=anchor;$('historyRangeStatus').textContent='';windowMinutes=currentWindowFromControls();await chrome.storage.local.set({analysisWindowMinutes:windowMinutes});syncControlsFromMinutes(windowMinutes);applyFilter();};
 $('showAllHistory').onclick=async()=>{fixedHistoryAnchor=null;$('historyAnchor').value='';windowMinutes=MAX_WINDOW_MINUTES;await chrome.storage.local.set({analysisWindowMinutes:windowMinutes});syncControlsFromMinutes(windowMinutes);$('historyRangeStatus').textContent='保存済みの最新コメントから30日間を表示します。';applyFilter();};
 $('loadHistory').onclick=async()=>{const id=Date.now();const tab=await findAbemaTab();if(!tab?.id){const p={status:'error',requestId:id,message:'ABEMAタブが見つかりません。ABEMAを開いてコメント欄を表示してください。',updatedAt:id};await chrome.storage.local.set({historyLoadProgress:p});renderHistoryStatus(p);return;}historyTargetTabId=tab.id;const p={status:'starting',requestId:id,message:`ABEMAタブを検出しました。取得開始: ${tab.title||'ABEMA'}`,updatedAt:id};await chrome.storage.local.set({historyLoadProgress:p});renderHistoryStatus(p);try{await chrome.tabs.sendMessage(tab.id,{source:'abema-comment-analyzer',type:'LOAD_HISTORY_REQUEST',requestId:id});}catch(e){const err={status:'error',requestId:id,message:'ABEMAタブへ接続できません。ABEMAタブを再読み込みしてから再試行してください。',updatedAt:Date.now()};await chrome.storage.local.set({historyLoadProgress:err});renderHistoryStatus(err);}};
 $('cancelHistory').onclick=async()=>{if(!historyTargetTabId){const tab=await findAbemaTab();historyTargetTabId=tab?.id||null;}if(historyTargetTabId)try{await chrome.tabs.sendMessage(historyTargetTabId,{source:'abema-comment-analyzer',type:'CANCEL_HISTORY_REQUEST',requestId:Date.now()});}catch(_){};};
-$('refresh').onclick=()=>load();$('userSearch').oninput=()=>{userLimit=200;renderUsers(groups());};$('exportJson').onclick=()=>download('abema-comments.json',JSON.stringify(comments.map(c=>({...c,userTags:[...ABEMAUserTags.get(userTags,String(c.userId))]})),null,2),'application/json');$('exportCsv').onclick=()=>{const q=s=>`"${String(s??'').replaceAll('"','""')}"`;download('abema-comments.csv',['time,userId,message,pageTitle,userTags',...comments.map(c=>[new Date(commentTime(c)).toISOString(),c.userId,c.message,c.pageTitle,JSON.stringify(ABEMAUserTags.get(userTags,String(c.userId)))].map(q).join(','))].join('\n'),'text/csv');};chrome.storage.onChanged.addListener((c,a)=>{if(a!=='local')return;if(c.learningMemory||c.learningSelectedSamples)learningLastRun=0;if(c.comments||c.mutedUsers||c.learningAutoMutedUsers||c.autoMuteLog||c.userTags||c.learningMemory||c.learningSelectedSamples||c.autoTagSettings)load(false);if(c.moderationSettings)load(true);if(c.backgroundCaptureStatus)renderBackgroundCapture(c.backgroundCaptureStatus.newValue);if(c.autoProgramSettings)renderAutoProgramSettings(c.autoProgramSettings.newValue);if(c.autoProgramStatus)renderAutoProgramStatus(c.autoProgramStatus.newValue);if(c.historyLoadProgress)renderHistoryStatus(c.historyLoadProgress.newValue);if(c.commentPanelOpenStatus)renderCommentPanelOpenStatus(c.commentPanelOpenStatus.newValue);});
+$('refresh').onclick=()=>load();$('userSearch').oninput=()=>{userLimit=200;renderUsers(groups());};$('exportJson').onclick=()=>download('abema-comments.json',JSON.stringify(comments.map(c=>({...c,userTags:[...ABEMAUserTags.get(userTags,String(c.userId))]})),null,2),'application/json');$('exportCsv').onclick=()=>{
+  const values=comments.map(c=>[
+    new Date(commentTime(c)).toISOString(),c.userId,c.message,c.pageTitle,
+    JSON.stringify(ABEMAUserTags.get(userTags,String(c.userId)))
+  ]);
+  download('abema-comments.csv',ABEMACsvExport.document(values),'text/csv;charset=utf-8');
+};chrome.storage.onChanged.addListener((c,a)=>{if(a!=='local')return;if(c.learningMemory||c.learningSelectedSamples)learningLastRun=0;if(c.comments||c.mutedUsers||c.learningAutoMutedUsers||c.autoMuteLog||c.userTags||c.learningMemory||c.learningSelectedSamples||c.autoTagSettings)load(false);if(c.moderationSettings)load(true);if(c.backgroundCaptureStatus)renderBackgroundCapture(c.backgroundCaptureStatus.newValue);if(c.autoProgramSettings)renderAutoProgramSettings(c.autoProgramSettings.newValue);if(c.autoProgramStatus)renderAutoProgramStatus(c.autoProgramStatus.newValue);if(c.historyLoadProgress)renderHistoryStatus(c.historyLoadProgress.newValue);if(c.commentPanelOpenStatus)renderCommentPanelOpenStatus(c.commentPanelOpenStatus.newValue);});
 
 let userTags = {};
 let tagEditorUser = null;

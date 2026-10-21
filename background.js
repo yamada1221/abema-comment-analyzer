@@ -16,7 +16,7 @@ async function appendCapturedComments(batch) {
   // This extension-origin lock is also used by backup restore and history deletion.
   return navigator.locks.request('abema-comment-history', async () => {
     const data = await chrome.storage.local.get(['comments', 'captureEnabled']);
-    if (data.captureEnabled === false) return { ok: true, skipped: true };
+    if (data.captureEnabled !== true) return { ok: true, skipped: true };
     const now = Date.now(), byId = new Map();
     for (const c of (Array.isArray(data.comments) ? data.comments : []).concat(batch)) {
       const key = String(c.id || `${c.userId}:${c.createdAtMs || c.observedAt}:${c.message}`);
@@ -45,11 +45,23 @@ function tickAutoProgram(options = {}) {
   });
 }
 
-function applyAutoProgramSettings() {
+function applyAutoProgramSettings({ capturePreference, resetCompleted = true } = {}) {
   const revision = ++autoProgramRevision;
   return queueAutoProgram(async () => {
+    // A confirmed backup replaces the user's recording preference even while an
+    // automatic session temporarily controls captureEnabled. Preserve this change
+    // before an old session ends or a newer queued settings update takes over.
+    if (typeof capturePreference?.enabled === 'boolean') {
+      const { autoProgramSession } = await chrome.storage.local.get('autoProgramSession');
+      if (autoProgramSession) await chrome.storage.local.set({ autoProgramSession: {
+        ...autoProgramSession, previousCaptureHadValue: true,
+        previousCaptureEnabled: capturePreference.enabled
+      } });
+    }
     if (revision !== autoProgramRevision) return;
-    await chrome.storage.local.remove(['autoProgramLastCompletedWindowKey', 'autoProgramCompletedWindowKeys']);
+    if (resetCompleted) {
+      await chrome.storage.local.remove(['autoProgramLastCompletedWindowKey', 'autoProgramCompletedWindowKeys']);
+    }
     if (revision === autoProgramRevision) return runAutoProgramTick({}, revision);
   });
 }
@@ -69,6 +81,32 @@ function stopAutoProgram() {
       await completeWindows(ABEMAAutoPrograms.windows(new Date(), settings).map(program => program.windowKey));
       await setStatus('stopped', { message: '実行中の自動記録はありません。' });
     }
+  });
+}
+
+
+function setManualCapture(enabled) {
+  if (typeof enabled !== 'boolean') return Promise.reject(new Error('記録設定が正しくありません。'));
+  // Invalidate any pending detection before it can undo a manual choice.
+  autoProgramRevision += 1;
+  return queueAutoProgram(async () => {
+    const settings = await getSettings();
+    const { autoProgramSession } = await chrome.storage.local.get('autoProgramSession');
+    const keys = ABEMAAutoPrograms.windows(new Date(), settings).map(program => program.windowKey);
+    const message = enabled ? '手動でコメント記録を開始しました。' : '手動でコメント記録を停止しました。';
+    if (autoProgramSession) {
+      // Manual control takes over the open page; leave it available for viewing.
+      await finishSession(settings, {
+        ...autoProgramSession, ownedTab: false,
+        previousCaptureHadValue: true, previousCaptureEnabled: enabled,
+        windowKeys: [...new Set([...sessionWindowKeys(autoProgramSession), ...keys])]
+      }, message, true);
+    } else {
+      await completeWindows(keys);
+      await setStatus('stopped', { message });
+    }
+    await chrome.storage.local.set({ captureEnabled: enabled });
+    return { ok: true, enabled };
   });
 }
 
@@ -445,6 +483,17 @@ async function setupAlarm() {
 
 chrome.runtime.onInstalled.addListener((details) => {
   (async () => {
+    // Treat a missing capture flag as OFF at runtime, including during install.
+    // On upgrade, migrate the old implicit-ON default so existing users keep
+    // their previous recording preference without needing to opt in again.
+    if (details?.reason === 'install' || details?.reason === 'update') {
+      const { captureEnabled } = await chrome.storage.local.get('captureEnabled');
+      if (typeof captureEnabled !== 'boolean') {
+        await chrome.storage.local.set({
+          captureEnabled: details.reason === 'update'
+        });
+      }
+    }
     await setupAlarm();
     if (details?.reason === 'update' && details.previousVersion === '0.7.0') {
       await chrome.storage.local.remove('autoProgramLastCompletedWindowKey');
@@ -463,13 +512,21 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.autoProgramSettings) {
-    applyAutoProgramSettings().catch(() => {});
+  if (area === 'local' && (changes.autoProgramSettings || changes.lastTransferCapturePreference)) {
+    applyAutoProgramSettings({
+      capturePreference: changes.lastTransferCapturePreference?.newValue,
+      resetCompleted: !!changes.autoProgramSettings
+    }).catch(() => {});
   }
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || message.source !== SOURCE) return;
+  if (message.type === 'SET_CAPTURE_ENABLED') {
+    setManualCapture(message.enabled).then(sendResponse)
+      .catch(error => sendResponse({ ok: false, error: String(error.message || error) }));
+    return true;
+  }
   if (message.type === 'APPEND_CAPTURED_COMMENTS') {
     appendCapturedComments(message.comments).then(sendResponse)
       .catch(error => sendResponse({ ok: false, error: String(error.message || error) }));

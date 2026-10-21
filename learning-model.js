@@ -71,7 +71,8 @@
   function addSelectedSample(value, comment, now = Date.now()) {
     const current = normalizeSelectedSamples(value);
     const sample = normalizeSelectedSamples({ version: 1, samples: [{
-      userId: String(comment?.userId || ''), commentId: String(comment?.id || ''),
+      // Keep the same ID precedence as selectedCommentKey, including restored metadata.
+      userId: String(comment?.userId || ''), commentId: String(comment?.commentId || comment?.id || ''),
       message: String(comment?.message || ''), createdAtMs: Number(comment?.createdAtMs || comment?.observedAt || 0),
       selectedAt: now
     }] }).samples[0];

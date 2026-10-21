@@ -18,11 +18,17 @@ function setup(fetchImpl, Xhr) {
   const location = { origin: 'https://abema.tv', pathname: '/now-on-air/abema-news' };
   vm.runInNewContext(fs.readFileSync(require('node:path').join(__dirname, '../network-bridge.js'), 'utf8'),
     { window, location, Blob, ArrayBuffer, TextDecoder, URL, setTimeout: fn => { timers.push(fn); return 1; } });
-  return { window, location, output, flushDiagnostics: () => { for (const fn of timers.splice(0)) fn(); }, ready: () => listeners.message({ source: window,
-    data: { source: 'abema-comment-analyzer', type: 'BRIDGE_READY' } }) };
+  const setCapture = enabled => listeners.message({ source: window,
+    data: { source: 'abema-comment-analyzer', direction: 'TO_PAGE',
+      type: 'SET_CAPTURE_ENABLED', payload: { enabled } } });
+  return { window, location, output, setCapture,
+    flushDiagnostics: () => { for (const fn of timers.splice(0)) fn(); },
+    ready: (enable = true) => { if (enable) setCapture(true); listeners.message({ source: window,
+      data: { source: 'abema-comment-analyzer', type: 'BRIDGE_READY' } }); } };
 }
 test('preserves socket identity and buffers nested comments until bridge ready', async () => {
   const s = setup();
+  s.setCapture(true);
   const socket = new s.window.WebSocket('wss://example.invalid');
   assert.equal(s.window.WebSocket.OPEN, 1);
   assert.ok(socket instanceof s.window.WebSocket);
@@ -99,4 +105,32 @@ test('XHR captures comments from abema domain and reports unrelated host exclusi
   assert.equal(stats.apiSelected, 1);
   assert.equal(stats.apiResponses, 1);
   assert.ok(stats.selectionReasons.some(v => v.includes('example.org: related-but-host-excluded')));
+});
+
+test('no payloads or diagnostics are inspected before opt-in or after opt-out', async () => {
+  const response = () => new Response(JSON.stringify({ comments: [
+    { id: 'fetch-consent', userId: 'u', message: 'sensitive' }
+  ] }), { headers: { 'content-type': 'application/json' } });
+  const s = setup(() => Promise.resolve(response()));
+  s.ready(false);
+  const socket = new s.window.WebSocket('wss://example.invalid');
+  await socket.message({ data: JSON.stringify({ id:'socket-before',userId:'u',message:'before' }) });
+  await s.window.fetch('https://api-p-c3.abema-tv.com/v1/comments');
+  s.flushDiagnostics();
+  assert.equal(s.output.length, 0);
+
+  s.setCapture(true);
+  await socket.message({ data: JSON.stringify({ id:'socket-after',userId:'u',message:'after' }) });
+  await s.window.fetch('https://api-p-c3.abema-tv.com/v1/comments');
+  for (let i=0;i<30 && !s.output.some(item=>item.type==='NETWORK_COMMENT' &&
+       item.payload?.id==='fetch-consent');i++) await new Promise(resolve=>setTimeout(resolve,5));
+  assert.ok(s.output.some(item=>item.type==='NETWORK_COMMENT' && item.payload?.id==='socket-after'));
+  assert.ok(s.output.some(item=>item.type==='NETWORK_COMMENT' && item.payload?.id==='fetch-consent'));
+
+  s.setCapture(false);
+  const before = s.output.filter(item=>item.type==='NETWORK_COMMENT').length;
+  await socket.message({ data: JSON.stringify({ id:'socket-stopped',userId:'u',message:'stopped' }) });
+  await s.window.fetch('https://api-p-c3.abema-tv.com/v1/comments');
+  s.flushDiagnostics();
+  assert.equal(s.output.filter(item=>item.type==='NETWORK_COMMENT').length,before);
 });

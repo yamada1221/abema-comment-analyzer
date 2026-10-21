@@ -5,27 +5,50 @@ on:
     branches: [main]
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The update test installs the actual v0.13.1 source from a pinned commit.
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
+      - run: node scripts/generate_icons.cjs --check
+      - run: node scripts/generate_store_tile.cjs --check
+      - run: python3 scripts/package_extension.py --check
+      - run: python3 -m unittest discover -s tests -p 'test_package_*.py' -v
+      - name: Build and extract local review ZIP (never upload)
+        run: |
+          python3 scripts/package_extension.py
+          python3 -c "from pathlib import Path; from zipfile import ZipFile; p=next(Path('dist').glob('*-review.zip')); ZipFile(p).extractall('dist/review-unpacked')"
       - run: npm ci
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
         env:
           ABEMA_SCREENSHOT_DIR: test-results/screenshots
+          ABEMA_PACKAGE_SMOKE_DIR: dist/review-unpacked
+      - name: Validate mock store screenshot geometry
+        run: python3 scripts/check_store_screenshots.py
+      - name: Generate fictional listing previews (unpublished)
+        run: node scripts/capture_store_previews.cjs
+        env:
+          ABEMA_PACKAGE_SMOKE_DIR: dist/review-unpacked
       - name: Save mock-screen verification screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mock-screen-screenshots
-          path: test-results/screenshots
+          path: |
+            test-results/screenshots
+            test-results/store-previews
           if-no-files-found: ignore
           retention-days: 7

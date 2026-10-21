@@ -29,7 +29,7 @@ function harness({ capture = true, initialTabs = [], settings = {}, readState } 
   let nextId = 100;
   const tabs = new Map(initialTabs.map(tab => [tab.id, structuredClone(tab)]));
   const created = [], removed = [], updated = [], panelRequests = [];
-  const changed = [], messages = [], alarms = [];
+  const changed = [], messages = [], alarms = [], installed = [];
   const event = listeners => ({ addListener: callback => listeners.push(callback) });
   const local = {
     async get(keys) {
@@ -60,7 +60,7 @@ function harness({ capture = true, initialTabs = [], settings = {}, readState } 
     chrome: {
       storage: { local, onChanged: event(changed) },
       alarms: { get: async () => undefined, clear: async () => {}, create: async () => {}, onAlarm: event(alarms) },
-      runtime: { onInstalled: event([]), onStartup: event([]), onMessage: event(messages) },
+      runtime: { onInstalled: event(installed), onStartup: event([]), onMessage: event(messages) },
       tabs: {
         async query() { return structuredClone([...tabs.values()].filter(tab => (tab.pendingUrl || tab.url || '').startsWith('https://abema.tv/'))); },
         async get(id) { if (!tabs.has(id)) throw new Error('No tab'); return structuredClone(tabs.get(id)); },
@@ -89,8 +89,10 @@ function harness({ capture = true, initialTabs = [], settings = {}, readState } 
   });
   return {
     data, tabs, created, removed, updated, panelRequests, local,
+    install: details => installed.forEach(callback => callback(details)),
     tick: options => context.tickAutoProgram(options),
     stop: () => send({ type: 'AUTO_PROGRAM_STOP_NOW' }),
+    setCapture: enabled => send({ type: 'SET_CAPTURE_ENABLED', enabled }),
     saveSettings: () => send({ type: 'AUTO_PROGRAM_SETTINGS_SAVED' }),
     setTime: value => { now = value.getTime(); },
     async settle() { await nextTurn(); await context.tickAutoProgram(); }
@@ -444,4 +446,148 @@ test('a fixed-time NEWS window takes priority over a different custom channel', 
   h.setTime(new Date(2026, 9, 6, 2, 0)); await h.tick();
   assert.equal(h.data.captureEnabled, false);
   assert.equal(h.tabs.size, 0);
+});
+
+
+test('a fresh install opts out of recording, but upgrades keep the saved capture preference', async () => {
+  const fresh = harness({ capture: null, settings: { enabled: false } });
+  fresh.install({ reason: 'install' });
+  await fresh.settle();
+  assert.equal(fresh.data.captureEnabled, false);
+
+  const existing = harness({ capture: true, settings: { enabled: false } });
+  existing.install({ reason: 'update', previousVersion: '0.13.1' });
+  await existing.settle();
+  assert.equal(existing.data.captureEnabled, true);
+
+  const legacy = harness({ capture: null, settings: { enabled: false } });
+  legacy.install({ reason: 'update', previousVersion: '0.13.1' });
+  await legacy.settle();
+  assert.equal(legacy.data.captureEnabled, true);
+});
+
+
+test('updating an opted-out installation retains comments, tags, mutes and schedule', async () => {
+  const originalSettings = { enabled: false, keyword: '既存番組',
+    url: TARGET, days: [1, 3], startTime: '21:00', endTime: '23:00',
+    newsEnabled: false, cnnEnabled: false };
+  const h = harness({ capture: false, settings: originalSettings });
+  h.data.comments = [{ id: 'persist', userId: 'u', message: '保存済み', createdAtMs: Date.now() }];
+  h.data.userTags = { u: ['継続利用'] };
+  h.data.mutedUsers = ['muted'];
+  h.data.learningSelectedSamples = [{ id: 'sample', userId: 'u', message: '資料' }];
+  const before = structuredClone({
+    comments: h.data.comments, userTags: h.data.userTags, mutedUsers: h.data.mutedUsers,
+    learningSelectedSamples: h.data.learningSelectedSamples,
+    autoProgramSettings: h.data.autoProgramSettings
+  });
+  h.install({ reason: 'update', previousVersion: '0.13.1' });
+  await h.settle();
+  assert.equal(h.data.captureEnabled, false);
+  for (const [key, expected] of Object.entries(before))
+    assert.deepEqual(h.data[key], expected, `changed user data: ${key}`);
+  assert.equal(h.created.length, 0);
+
+  // Browser updates are not a new extension installation.
+  h.install({ reason: 'chrome_update' });
+  await h.settle();
+  assert.equal(h.data.captureEnabled, false);
+  assert.deepEqual(h.data.comments, before.comments);
+});
+
+test('restoring disabled automation preserves the imported recording preference', async () => {
+  for (const [previous, imported] of [[true, false], [false, true]]) {
+    const h = harness({ capture: previous });
+    await h.tick();
+    assert.equal(h.data.captureEnabled, true);
+    assert.equal(h.data.autoProgramSession.previousCaptureEnabled, previous);
+    await h.local.set({
+      captureEnabled: imported,
+      autoProgramSettings: { ...h.data.autoProgramSettings, enabled: false },
+      lastTransferImportAt: Date.now(),
+      lastTransferCapturePreference: { importedAt: Date.now(), enabled: imported }
+    });
+    await h.settle();
+    assert.equal(h.data.autoProgramSession, null);
+    assert.equal(h.data.captureEnabled, imported);
+  }
+});
+
+test('recording-only imports update the session preference even if capture is already ON', async () => {
+  for (const [previous, imported] of [[false, true], [true, false], [true, null]]) {
+    const h = harness({ capture: previous });
+    await h.tick();
+    await h.local.set({
+      ...(imported === null ? {} : { captureEnabled: imported }),
+      lastTransferImportAt: Date.now(),
+      lastTransferCapturePreference: { importedAt: Date.now(), enabled: imported }
+    });
+    await h.settle();
+    await h.stop();
+    assert.equal(h.data.captureEnabled, imported === null ? previous : imported);
+  }
+});
+
+test('partial imports do not restart a manually completed automatic window', async () => {
+  const h = harness({ capture: false });
+  await h.tick(); await h.stop();
+  const created = h.created.length;
+  await h.local.set({ lastTransferImportAt: Date.now(),
+    lastTransferCapturePreference: { importedAt: Date.now(), enabled: null } });
+  await h.settle();
+  assert.equal(h.created.length, created);
+  assert.equal(h.data.captureEnabled, false);
+  assert.equal(h.data.autoProgramSession, null);
+});
+
+test('manual recording stop stays OFF on the next automatic poll', async () => {
+  const h = harness({ capture: false });
+  await h.tick();
+  assert.equal(h.data.captureEnabled, true);
+  assert.equal((await h.setCapture(false)).ok, true);
+  await h.tick();
+  assert.equal(h.data.captureEnabled, false);
+});
+
+test('manual stop before polling blocks only the current window and keeps settings intact', async () => {
+  const h = harness({ capture: false });
+  const settings = structuredClone(h.data.autoProgramSettings);
+  await h.setCapture(false);
+  await h.tick();
+  assert.equal(h.created.length, 0);
+  assert.equal(h.data.captureEnabled, false);
+  assert.deepEqual(h.data.autoProgramSettings, settings);
+  h.setTime(new Date(2026, 9, 7, 0, 30));
+  await h.tick();
+  assert.equal(h.data.captureEnabled, true);
+  assert.equal(h.created.length, 1);
+});
+
+test('manual stop during detection cannot be undone by a delayed response and leaves the page open', async () => {
+  const waiting = deferred(), response = deferred();
+  const h = harness({ capture: false, readState: async state => { waiting.resolve(); await response.promise; return state; } });
+  const tick = h.tick();
+  await waiting.promise;
+  const stop = h.setCapture(false);
+  response.resolve();
+  await Promise.all([tick, stop]);
+  await h.tick();
+  assert.equal(h.data.captureEnabled, false);
+  assert.equal(h.data.autoProgramSession, null);
+  assert.equal(h.tabs.size, 1);
+  assert.equal(h.removed.length, 0);
+  assert.equal(h.panelRequests.length, 0);
+});
+
+test('manual start takes over a waiting automatic session without closing its page', async () => {
+  const h = harness({ capture: false, readState: state => ({ ...state, matched: false }) });
+  await h.tick();
+  assert.equal(h.data.captureEnabled, false);
+  assert.equal(h.data.autoProgramSession.active, false);
+  assert.equal((await h.setCapture(true)).ok, true);
+  await h.tick();
+  assert.equal(h.data.captureEnabled, true);
+  assert.equal(h.data.autoProgramSession, null);
+  assert.equal(h.tabs.size, 1);
+  assert.equal(h.created.length, 1);
 });

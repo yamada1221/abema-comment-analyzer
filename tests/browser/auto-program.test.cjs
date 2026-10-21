@@ -204,6 +204,10 @@ test('concurrent capture messages preserve every batch and popup deletion clears
     const popup = await app.context.newPage();
     await popup.goto(app.dashboard.url().replace('dashboard.html', 'popup.html'));
     await popup.locator('#clear').click();
+    // The first click is informational and must not erase comment history.
+    assert.equal(await popup.locator('#clearConfirm').isVisible(), true);
+    assert.equal((await app.dashboard.evaluate(() => chrome.storage.local.get('comments'))).comments.length, 40);
+    await popup.locator('#confirmClear').click();
     await waitForStorage(app.dashboard, ['comments', 'lastCommentAt'],
       data => data.comments.length === 0 && data.lastCommentAt === null);
   } finally { await app.context.close(); }
@@ -243,3 +247,53 @@ for (const options of [
     } finally { await app.context.close(); }
   });
 }
+
+test('confirmed backups keep their recording preference when stopping an active automatic session', { timeout: 90000 }, async () => {
+  const app = await extension();
+  try {
+    for (const [previous, imported] of [[true, false], [false, true]]) {
+      await app.worker.evaluate(value => chrome.storage.local.set({ captureEnabled: value }), previous);
+      const recordingState = await start(app);
+      assert.equal(recordingState.autoProgramSession.previousCaptureEnabled, previous);
+      const settings = await app.worker.evaluate(() => chrome.storage.local.get('autoProgramSettings'));
+      const payload = { format: 'abema-comment-analyzer-transfer', schemaVersion: 6,
+        data: { captureEnabled: imported, autoProgramSettings: { ...settings.autoProgramSettings, enabled: false } } };
+      await app.dashboard.evaluate(() => { document.getElementById('transferStatus').textContent = ''; });
+      app.dashboard.once('dialog', dialog => dialog.accept());
+      await app.dashboard.locator('#transferFile').setInputFiles({
+        name: 'stop-automation.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(payload))
+      });
+      await app.dashboard.waitForFunction(() =>
+        document.getElementById('transferStatus').textContent.includes('引継ぎ完了'));
+      await waitForStorage(app.worker, ['autoProgramSession', 'captureEnabled'], state =>
+        state.autoProgramSession === null && state.captureEnabled === imported);
+      assert.equal((await app.worker.evaluate(() => chrome.tabs.query({ url: 'https://abema.tv/*' }))).length, 0);
+    }
+  } finally { await app.context.close(); }
+});
+
+test('popup recording stop overrides automatic polls and leaves the viewing tab open', { timeout: 60000 }, async () => {
+  const app = await extension();
+  try {
+    await start(app);
+    const popup = await app.context.newPage();
+    await popup.goto(app.dashboard.url().replace('dashboard.html', 'popup.html'));
+    await popup.waitForFunction(() => document.getElementById('toggle').textContent === '記録を停止');
+    await popup.locator('#toggle').click();
+    await waitForStorage(app.worker, ['captureEnabled', 'autoProgramSession'], state =>
+      state.captureEnabled === false && state.autoProgramSession === null);
+    await popup.waitForFunction(() => document.getElementById('captureStatus').textContent === '記録を停止しました。');
+    let result = await app.dashboard.evaluate(source => chrome.runtime.sendMessage({ source, type: 'AUTO_PROGRAM_TICK_NOW' }), SOURCE);
+    assert.equal(result.ok, true);
+    assert.equal((await app.worker.evaluate(() => chrome.storage.local.get('captureEnabled'))).captureEnabled, false);
+    assert.equal((await app.worker.evaluate(() => chrome.tabs.query({ url: 'https://abema.tv/*' }))).length, 1);
+    await popup.locator('#toggle').click();
+    await waitForStorage(app.worker, 'captureEnabled', state => state.captureEnabled === true);
+    result = await app.dashboard.evaluate(source => chrome.runtime.sendMessage({ source, type: 'AUTO_PROGRAM_TICK_NOW' }), SOURCE);
+    assert.equal(result.ok, true);
+    const state = await app.worker.evaluate(() => chrome.storage.local.get(['captureEnabled', 'autoProgramSession', 'autoProgramSettings']));
+    assert.equal(state.captureEnabled, true);
+    assert.equal(state.autoProgramSession, null);
+    assert.equal(state.autoProgramSettings.enabled, true);
+  } finally { await app.context.close(); }
+});

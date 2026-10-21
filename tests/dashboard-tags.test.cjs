@@ -50,7 +50,7 @@ async function dashboard(store) {
   w.HTMLCanvasElement.prototype.getContext = () => ({ clearRect() {}, fillRect() {}, fillText() {} });
   w.HTMLElement.prototype.scrollIntoView = () => {};
   w.confirm = () => true;
-  for (const file of ['user-tags.js', 'learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'comment-tools.js', 'auto-user-tags.js', 'dashboard-explorer.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
+  for (const file of ['user-tags.js', 'learning-model.js', 'moderation-store.js', 'auto-program-schedules.js', 'comment-tools.js', 'auto-user-tags.js', 'dashboard-explorer.js', 'csv-export.js', 'dashboard.js']) w.eval(fs.readFileSync(path.join(root, file), 'utf8'));
   await settle();
   assert.equal(w.document.getElementById('versionInfo').textContent, 'v0.11.0 / 保存形式 6');
   assert.doesNotMatch(w.document.getElementById('transferStatus').textContent, /失敗/);
@@ -179,7 +179,7 @@ test('upgrade, edit, filter, refresh, export and expiry preserve user data', asy
     el('exportJson').onclick();
     assert.deepEqual(JSON.parse(downloads.at(-1).text).find(c => c.userId === 'user-a').userTags, ['要観察', '定型文']);
     el('exportCsv').onclick();
-    assert.match(downloads.at(-1).text, /^time,userId,message,pageTitle,userTags/);
+    assert.match(downloads.at(-1).text, /^\uFEFFtime,userId,message,pageTitle,userTags/);
     await w.exportTransfer();
     const payload = JSON.parse(downloads.at(-1).text);
     assert.equal(payload.schemaVersion, 6);
@@ -228,6 +228,15 @@ test('malformed transfers never overwrite any existing data', async t => {
     ['whitelist', { moderationSettings: { whitelistUsers: {} } }],
     ['enabled flag', { moderationSettings: { enabled: 'false' } }],
     ['numeric threshold', { moderationSettings: { rateCount: {} } }],
+    ['negative rate count', { moderationSettings: { rateCount: -1 } }],
+    ['zero emoji window', { moderationSettings: { emojiWindowSec: 0 } }],
+    ['huge duplicate window', { moderationSettings: { duplicateWindowSec: 999999999 } }],
+    ['out-of-range selected match threshold', { moderationSettings: { learningSelectedMatchThreshold: 9 } }],
+    ['negative candidate threshold', { moderationSettings: { learningCandidateThreshold: -0.5 } }],
+    ['oversized analysis window', { analysisWindowMinutes: 31 * 24 * 60 }],
+    ['negative automatic stop polls', { autoProgramSettings: { missingPollsToStop: -5 } }],
+    ['noninteger automatic stop polls', { autoProgramSettings: { missingPollsToStop: 2.5 } }],
+    ['huge automatic stop polls', { autoProgramSettings: { missingPollsToStop: 999999 } }],
     ['log entry', { autoMuteLog: [null] }],
     ['capture flag', { captureEnabled: 'false' }],
     ['analysis window', { analysisWindowMinutes: {} }],
@@ -254,6 +263,53 @@ test('malformed transfers never overwrite any existing data', async t => {
       assert.deepEqual(store.state, before);
     } finally { page.close(); }
   });
+});
+
+test('learning-memory imports enforce the 200-user x 40-comment maximum', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    const saved = clone(store.state);
+    const one = { userId: 'trained', message: 'sample',
+      createdAtMs: Date.now() };
+    const transfer = {
+      format: 'abema-comment-analyzer-transfer',
+      schemaVersion: 6,
+      data: { learningMemory: { version: 1, samples: Array(8001).fill(one) } }
+    };
+    let confirmation = false;
+    page.w.confirm = () => { confirmation = true; return true; };
+    await page.w.importTransferFile({ text: async () => JSON.stringify(transfer) });
+    assert.match(page.el('transferStatus').textContent, /失敗/);
+    assert.equal(confirmation, false);
+    assert.deepEqual(store.state, saved);
+
+    // The writer's maximum legitimate number of samples remains supported.
+    transfer.data.learningMemory.samples.length = 8000;
+    assert.doesNotThrow(() => page.w.validateTransferData(transfer.data));
+  } finally { page.close(); }
+});
+
+test('valid boundary settings import without changing unrelated tags and comments', async () => {
+  const store=fixture(), page=await dashboard(store);
+  try {
+    const backup={
+      format:'abema-comment-analyzer-transfer',schemaVersion:6,
+      data:{
+        moderationSettings: {rateCount:2, emojiCount:100,
+          emojiWindowSec:86400, learningSelectedMatchThreshold:1},
+        analysisWindowMinutes:30*24*60,
+        autoProgramSettings:{enabled:false, missingPollsToStop:1}
+      }
+    };
+    const existingComments=clone(store.state.comments);
+    await page.w.importTransferFile({text: async()=>JSON.stringify(backup)});
+    assert.match(page.el('transferStatus').textContent,/引継ぎ完了/);
+    assert.equal(store.state.moderationSettings.rateCount,2);
+    assert.equal(store.state.moderationSettings.emojiWindowSec,86400);
+    assert.equal(store.state.analysisWindowMinutes,30*24*60);
+    assert.equal(store.state.autoProgramSettings.missingPollsToStop,1);
+    assert.deepEqual(store.state.comments,existingComments);
+  }finally{page.close();}
 });
 
 test('old auto-start settings retain the custom program while new daily presets can be disabled and transferred', async () => {
@@ -583,4 +639,213 @@ test('changing emoji thresholds invalidates queued mute decisions before storage
     await store.local.set({moderationSettings:{enabled:true,emojiEnabled:true,emojiCount:3,emojiWindowSec:60}});
     assert.equal((await page.w.ABEMAModerationStore.apply(command)).count,0);
   }finally{page.close();}
+});
+
+
+test('backup restore asks before re-enabling recording or automatic programs', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    const before = clone(store.state);
+    const messages = [];
+    const backup = {
+      format: 'abema-comment-analyzer-transfer',
+      schemaVersion: 6,
+      extensionVersion: '0.13.1',
+      data: {
+        comments: [{ id: 'backup', userId: 'imported', message: 'new', createdAtMs: Date.now() }],
+        captureEnabled: true,
+        autoProgramSettings: { enabled: true, primaryEnabled: true }
+      }
+    };
+    page.w.confirm = message => { messages.push(message); return false; };
+    await page.w.importTransferFile({ text: async () => JSON.stringify(backup) });
+    assert.deepEqual(store.state, before, 'cancel must not overwrite any user data');
+    assert.match(page.el('transferStatus').textContent, /キャンセル/);
+    assert.equal(messages.length, 1);
+    assert.match(messages[0], /コメント記録がON/);
+    assert.match(messages[0], /自動起動・記録設定がON/);
+
+    page.w.confirm = message => { messages.push(message); return true; };
+    await page.w.importTransferFile({ text: async () => JSON.stringify(backup) });
+    assert.equal(store.state.captureEnabled, true);
+    assert.equal(store.state.autoProgramSettings.enabled, true);
+    assert.equal(store.state.comments[0].id, 'backup');
+    assert.equal(messages.length, 2);
+  } finally { page.close(); }
+});
+
+test('oversized backup is rejected without even reading its contents', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    const before = clone(store.state);
+    let read = false;
+    await page.w.importTransferFile({
+      size: 256 * 1024 * 1024 + 1,
+      text: async () => { read = true; throw new Error('should not be read'); }
+    });
+    assert.equal(read, false);
+    assert.deepEqual(store.state, before);
+    assert.match(page.el('transferStatus').textContent, /256MB/);
+  } finally { page.close(); }
+});
+
+
+test('backup import rejects more than 100,000 comments before touching existing data', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    const before = clone(store.state);
+    const comment = { userId: 'sample', message: 'stored comment', createdAtMs: Date.now() };
+    const payload = {
+      format: 'abema-comment-analyzer-transfer',
+      schemaVersion: 6,
+      extensionVersion: '0.13.1',
+      data: {
+        comments: Array(100001).fill(comment),
+        mutedUsers: ['should-not-import'],
+        captureEnabled: false
+      }
+    };
+    let prompted = false;
+    page.w.confirm = () => { prompted = true; return true; };
+    await page.w.importTransferFile({ text: async () => JSON.stringify(payload) });
+    assert.equal(prompted, false, 'invalid backup must never request consent for a write');
+    assert.match(page.el('transferStatus').textContent, /引継ぎに失敗/);
+    assert.deepEqual(store.state, before);
+
+    // Exactly at the 100k item retention limit, the shape itself is valid.
+    payload.data.comments.length = 100000;
+    assert.doesNotThrow(() => page.w.validateTransferData(payload.data));
+  } finally { page.close(); }
+});
+
+
+test('transfer rechecks destination schema after confirmation and preserves newer data', async () => {
+  const store = fixture(), page = await dashboard(store);
+  store.listeners.length = 0;
+  let before;
+  try {
+    page.w.confirm = () => {
+      // Simulate a newer extension page upgrading the destination during import.
+      store.state.storageSchemaVersion = 7;
+      store.state.comments = [{ userId: 'newer', message: 'keep me', createdAtMs: Date.now() }];
+      before = clone(store.state);
+      return true;
+    };
+    await page.w.importTransferFile({ text: async () => JSON.stringify({
+      format: 'abema-comment-analyzer-transfer', schemaVersion: 6,
+      data: { comments: [], mutedUsers: [], captureEnabled: true, userTags: {} }
+    }) });
+    assert.match(page.el('transferStatus').textContent, /新しい保存形式.*上書きできません/);
+    assert.deepEqual(store.state, before);
+    assert.equal(page.el('transferFile').value, '');
+  } finally { page.close(); }
+});
+
+
+test('invalid comment metadata is rejected before confirmation or storage changes', async () => {
+  const store = fixture(), page = await dashboard(store);
+  store.listeners.length = 0;
+  let confirmations = 0;
+  page.w.confirm = () => { confirmations++; return true; };
+  const before = clone(store.state);
+  try {
+    for (const metadata of [
+      { pageUrl: 123 }, { pageUrl: ['https://abema.tv/'] }, { pageTitle: {} },
+      { id: {} }, { commentId: [] }, { timestampReliable: 'false' }, { isOwner: 'false' }
+    ]) {
+      await page.w.importTransferFile({ text: async () => JSON.stringify({
+        format: 'abema-comment-analyzer-transfer', schemaVersion: 6,
+        data: { mutedUsers: [], userTags: {}, comments: [{
+          userId: 'imported', message: 'bad metadata', createdAtMs: Date.now(), ...metadata
+        }] }
+      }) });
+      assert.match(page.el('transferStatus').textContent, /引継ぎに失敗/, JSON.stringify(metadata));
+      assert.deepEqual(store.state, before, JSON.stringify(metadata));
+    }
+    assert.equal(confirmations, 0);
+  } finally { page.close(); }
+});
+
+test('valid comment metadata and legacy minimal comments round-trip without being dropped', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    const now = Date.now();
+    const comments = [
+      { userId: 'legacy', message: 'minimal', createdAtMs: now - 1 },
+      { id: 42, commentId: 'chat-id', userId: 123, message: '<b>literal text</b>',
+        createdAtMs: now, observedAt: now, pageUrl: 'https://abema.tv/now-on-air/abema-news',
+        pageTitle: '番組タイトル', timestampReliable: false, isOwner: false }
+    ];
+    await page.w.importTransferFile({ text: async () => JSON.stringify({
+      format: 'abema-comment-analyzer-transfer', schemaVersion: 6, data: { comments }
+    }) });
+    assert.match(page.el('transferStatus').textContent, /引継ぎ完了/);
+    assert.equal(page.el('total').textContent, '2');
+    assert.equal(page.el('commentChannel').options[1].value, comments[1].pageUrl);
+    let exported;
+    page.w.download = (_name, text) => { exported = JSON.parse(text); };
+    await page.w.exportTransfer();
+    assert.deepEqual(exported.data.comments, comments);
+    assert.doesNotMatch(page.el('commentResults').innerHTML, /<b>literal text<\/b>/);
+  } finally { page.close(); }
+});
+
+test('moderation settings saved from oversized inputs remain restorable from their own backup', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    for (const key of ['rateCount', 'rateWindowSec', 'duplicateCount', 'duplicateWindowSec',
+      'learningMinComments', 'learningMinMutedUsers']) page.el(key).value = '999999';
+    await page.el('saveModeration').onclick();
+    let backup;
+    page.w.download = (_name, text) => { backup = JSON.parse(text); };
+    await page.w.exportTransfer();
+    await page.w.importTransferFile({ text: async () => JSON.stringify(backup) });
+    assert.match(page.el('transferStatus').textContent, /引継ぎ完了/);
+    for (const key of ['rateCount', 'duplicateCount', 'learningMinComments', 'learningMinMutedUsers']) {
+      assert.equal(store.state.moderationSettings[key], 100000);
+      assert.equal(page.el(key).value, '100000');
+    }
+    for (const key of ['rateWindowSec', 'duplicateWindowSec']) {
+      assert.equal(store.state.moderationSettings[key], 86400);
+      assert.equal(page.el(key).value, '86400');
+    }
+  } finally { page.close(); }
+});
+
+test('restored commentId metadata keeps learning selection identifiable and reversible', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    for (const metadata of [{ commentId: 'legacy-chat' }, { commentId: 'chat', id: 'storage-id' }]) {
+      const comment = { userId: 'imported', message: '問題のある投稿を学習元に指定',
+        createdAtMs: Date.now() - 1000, ...metadata };
+      await page.w.importTransferFile({ text: async () => JSON.stringify({
+        format: 'abema-comment-analyzer-transfer', schemaVersion: 6,
+        data: { comments: [comment], learningSelectedSamples: { version: 1, samples: [] } }
+      }) });
+      assert.match(page.el('transferStatus').textContent, /引継ぎ完了/);
+      page.w.selectUser('imported');
+      await page.w.document.querySelector('[data-learncomment]').onclick();
+      await settle();
+      assert.equal(page.w.document.querySelector('[data-learncomment]').textContent, '学習指定を解除');
+      assert.equal(store.state.learningSelectedSamples.samples[0].commentId, metadata.commentId);
+      await page.w.document.querySelector('[data-learncomment]').onclick();
+      await settle();
+      assert.equal(store.state.learningSelectedSamples.samples.length, 0);
+      assert.equal(page.w.document.querySelector('[data-learncomment]').textContent, 'このコメントを学習');
+    }
+  } finally { page.close(); }
+});
+
+test('backup imports notify automatic sessions of explicit and absent recording preferences', async () => {
+  const store = fixture(), page = await dashboard(store);
+  try {
+    for (const data of [{ captureEnabled: false }, { captureEnabled: true }, { userTags: {} }]) {
+      await page.w.importTransferFile({ text: async () => JSON.stringify({
+        format: 'abema-comment-analyzer-transfer', schemaVersion: 6, data
+      }) });
+      assert.match(page.el('transferStatus').textContent, /引継ぎ完了/);
+      assert.equal(store.state.lastTransferCapturePreference.enabled, data.captureEnabled ?? null);
+      assert.equal(store.state.lastTransferCapturePreference.importedAt, store.state.lastTransferImportAt);
+    }
+  } finally { page.close(); }
 });
